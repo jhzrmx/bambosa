@@ -117,7 +117,7 @@ $activeNav = 'machinery';
         </tbody>
       </table>
       </div>
-	  <a href="<?= base_url('officer/machinery.php?') . '&new='?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Add New Machinery</button></a>
+	  <a href="<?= base_url('officer/machinery.php?new=') ?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Add New Machinery</button></a>
 	<?php endif; ?>
 	
 	<?php if ($isAddingOrEditing): ?>

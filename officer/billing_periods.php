@@ -177,7 +177,7 @@ $activeNav = 'billing';
         </tbody>
       </table>
       </div>
-	  <a href="<?= base_url('officer/billing_periods.php?') . '&new='?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Open New Billing Period</button></a>
+	  <a href="<?= base_url('officer/billing_periods.php?new=') ?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Open New Billing Period</button></a>
 	<?php endif; ?>
 	
 	<?php if ($isAddingOrEditing): ?>

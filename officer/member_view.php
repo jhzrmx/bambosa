@@ -229,7 +229,7 @@ if ($editingLot && $editingLot['latitude'] !== null && $editingLot['longitude'] 
         </tbody>
       </table>
       </div>
-	  <a href="<?= base_url('officer/member_view.php?id=' . $memberId) . '&new='?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Add New Farm Lot</button></a>
+	  <a href="<?= base_url('officer/member_view.php?id=' . $memberId . '&new=') ?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Add New Farm Lot</button></a>
 	<?php endif; ?>
 	
 	<?php if ($isAddingOrEditing): ?>
