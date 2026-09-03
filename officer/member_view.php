@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/members.php';
+require_once __DIR__ . '/../includes/sector_boundaries.php';
 
 require_role('officer');
 
@@ -16,6 +17,7 @@ if (!$member || $member['role'] !== 'member') {
 
 $errors = [];
 $editingLot = null;
+$pendingAssignmentPreview = null; // set when auto-assign would overwrite an existing sector, awaiting confirmation
 
 // Load a lot into the form for editing if ?edit_lot=ID is present
 if (isset($_GET['edit_lot'])) {
@@ -32,13 +34,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
         $errors[] = 'Invalid form submission. Please try again.';
     }
 
-    $lotId      = (int) ($_POST['lot_id'] ?? 0);
-    $lotName    = trim($_POST['lot_name'] ?? '');
-    $sectorId   = (int) ($_POST['sector_id'] ?? 0) ?: null;
-    $landArea   = $_POST['land_area_ha'] ?? '';
-    $latitude   = trim($_POST['latitude'] ?? '');
-    $longitude  = trim($_POST['longitude'] ?? '');
-    $notes      = trim($_POST['notes'] ?? '');
+    $lotId       = (int) ($_POST['lot_id'] ?? 0);
+    $lotName     = trim($_POST['lot_name'] ?? '');
+    $sectorId    = (int) ($_POST['sector_id'] ?? 0) ?: null;
+    $landArea    = $_POST['land_area_ha'] ?? '';
+    $latitude    = trim($_POST['latitude'] ?? '');
+    $longitude   = trim($_POST['longitude'] ?? '');
+    $notes       = trim($_POST['notes'] ?? '');
+    $autoAssign  = isset($_POST['auto_assign_sector']);
+    $confirmedOverwrite = isset($_POST['confirm_overwrite_sector']);
 
     if ($lotName === '') {
         $errors[] = 'Lot name/label is required.';
@@ -54,24 +58,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
     }
 
     if (empty($errors)) {
-        $data = [
-            'user_id'      => $memberId,
-            'sector_id'    => $sectorId,
-            'lot_name'     => $lotName,
-            'land_area_ha' => (float) $landArea,
-            'latitude'     => $latitude !== '' ? (float) $latitude : null,
-            'longitude'    => $longitude !== '' ? (float) $longitude : null,
-            'notes'        => $notes,
-        ];
+        $hasCoords = $latitude !== '' && $longitude !== '';
 
-        if ($lotId > 0) {
-            update_farm_lot($pdo, $lotId, $data);
-        } else {
-            create_farm_lot($pdo, $data);
+        // If auto-assign is requested and we have coordinates, check what
+        // it would do BEFORE saving, so we can ask for confirmation when it
+        // would overwrite a sector the officer already picked manually.
+        if ($autoAssign && $hasCoords && !$confirmedOverwrite) {
+            $fakeLot = [
+                'sector_id' => $sectorId,
+                'latitude'  => (float) $latitude,
+                'longitude' => (float) $longitude,
+            ];
+            $preview = preview_auto_assignment_for_lot($pdo, $fakeLot);
+
+            // Only interrupt with a confirmation step if it would actually
+            // change an EXISTING sector assignment. If the lot currently has
+            // no sector, or the match agrees with the current one, just proceed.
+            if ($preview !== null && $preview['would_change'] && $sectorId !== null) {
+                $pendingAssignmentPreview = $preview;
+                // Stash the submitted form values so the confirmation step
+                // can re-render the form with everything the officer typed.
+                $editingLot = [
+                    'lot_id'       => $lotId,
+                    'lot_name'     => $lotName,
+                    'sector_id'    => $sectorId,
+                    'land_area_ha' => $landArea,
+                    'latitude'     => $latitude,
+                    'longitude'    => $longitude,
+                    'notes'        => $notes,
+                ];
+            }
         }
 
-        header('Location: ' . base_url('officer/member_view.php?id=' . $memberId . '&flash=lot_saved'));
-        exit;
+        if ($pendingAssignmentPreview === null) {
+            $data = [
+                'user_id'      => $memberId,
+                'sector_id'    => $sectorId,
+                'lot_name'     => $lotName,
+                'land_area_ha' => (float) $landArea,
+                'latitude'     => $hasCoords ? (float) $latitude : null,
+                'longitude'    => $hasCoords ? (float) $longitude : null,
+                'notes'        => $notes,
+            ];
+
+            if ($lotId > 0) {
+                update_farm_lot($pdo, $lotId, $data);
+            } else {
+                $lotId = create_farm_lot($pdo, $data);
+            }
+
+            // Run auto-assignment AFTER the save, using the now-current
+            // coordinates, so the sector on record reflects the polygon
+            // match. This also covers the "no existing sector, or officer
+            // already agreed via confirmation" paths from above.
+            if ($autoAssign && $hasCoords) {
+                apply_auto_assignment_for_lot($pdo, $lotId, (int) $_SESSION['user_id']);
+            }
+
+            header('Location: ' . base_url('officer/member_view.php?id=' . $memberId . '&flash=lot_saved'));
+            exit;
+        }
     }
 }
 
@@ -93,6 +139,17 @@ $sectors = get_sectors($pdo);
 $totalArea = get_total_land_area($pdo, $memberId);
 $flash = $_GET['flash'] ?? null;
 $activeNav = 'members';
+
+// Sensible default center for the location-picker map: use the lot being
+// edited if it already has coordinates, otherwise the average of all other
+// farm lots' coordinates, otherwise fall back to a wide generic view in
+// the JS itself (no data to anchor a guess to).
+$pickerDefaultCenter = null;
+if ($editingLot && $editingLot['latitude'] !== null && $editingLot['longitude'] !== null) {
+    $pickerDefaultCenter = ['lat' => (float) $editingLot['latitude'], 'lng' => (float) $editingLot['longitude']];
+} else {
+    $pickerDefaultCenter = get_average_farm_lot_location($pdo);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -101,6 +158,7 @@ $activeNav = 'members';
 <title><?= htmlspecialchars($member['full_name']) ?> · BAMBOSA Officer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="<?= base_url('assets/css/style.css') ?>">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 </head>
 <body>
 
@@ -206,17 +264,46 @@ $activeNav = 'members';
         </div>
       </div>
 
+      <div class="form-group">
+        <label>Farm Lot Location</label>
+        <p class="muted-note" style="margin:0 0 0.5rem;">
+          Click anywhere on the map to drop a pin at this lot's location, or drag an
+          existing pin to adjust it. The coordinate fields below will fill in automatically —
+          you can also type coordinates directly if you already have them.
+        </p>
+        <div id="lotLocationMap" class="map-container map-container-small"></div>
+      </div>
+
       <div class="form-row">
         <div class="form-group">
-          <label for="latitude">Latitude (optional — for QGIS mapping)</label>
+          <label for="latitude">Latitude (optional — for map &amp; auto-assignment)</label>
           <input type="text" id="latitude" name="latitude"
                  value="<?= htmlspecialchars($editingLot['latitude'] ?? '') ?>" placeholder="e.g. 13.7480">
         </div>
         <div class="form-group">
-          <label for="longitude">Longitude (optional — for QGIS mapping)</label>
+          <label for="longitude">Longitude (optional — for map &amp; auto-assignment)</label>
           <input type="text" id="longitude" name="longitude"
                  value="<?= htmlspecialchars($editingLot['longitude'] ?? '') ?>" placeholder="e.g. 122.9430">
         </div>
+      </div>
+
+      <div class="form-group">
+        <button type="button" id="btnClearPin" class="link-btn deactivate" style="font-size:0.85rem;">
+          Clear pin / coordinates
+        </button>
+      </div>
+
+      <div class="form-group">
+        <label>
+          <input type="checkbox" name="auto_assign_sector" style="width:auto; display:inline-block;"
+            <?= isset($_POST['auto_assign_sector']) || $pendingAssignmentPreview ? 'checked' : '' ?>>
+          Auto-assign sector from drawn sector boundaries, based on these coordinates
+        </label>
+        <p class="muted-note" style="margin:0.3rem 0 0;">
+          If checked and these coordinates fall inside a sector boundary drawn on the
+          <a href="<?= base_url('officer/sector_boundaries.php') ?>">Sector Boundaries map</a>,
+          the sector above will be set automatically when you save.
+        </p>
       </div>
 
       <div class="form-group">
@@ -224,16 +311,49 @@ $activeNav = 'members';
         <input type="text" id="notes" name="notes" value="<?= htmlspecialchars($editingLot['notes'] ?? '') ?>">
       </div>
 
-      <button type="submit" class="btn-full" style="max-width:220px;">
-        <?= $editingLot ? 'Update Lot' : 'Add Lot' ?>
-      </button>
-      <?php if ($editingLot): ?>
+      <?php if ($pendingAssignmentPreview): ?>
+        <div class="alert alert-error">
+          <strong>Heads up:</strong> these coordinates fall inside
+          "<?= htmlspecialchars($pendingAssignmentPreview['matched_sector']['sector_name']) ?>",
+          which is different from the sector currently selected above.
+          <?php if ($pendingAssignmentPreview['match_count'] > 1): ?>
+            (They also overlap with <?= $pendingAssignmentPreview['match_count'] - 1 ?> other drawn
+            sector boundary/boundaries — "<?= htmlspecialchars($pendingAssignmentPreview['matched_sector']['sector_name']) ?>"
+            was used since sector boundaries currently overlap here.)
+          <?php endif; ?>
+          Saving with auto-assign checked will change this lot's sector. Confirm to proceed,
+          or uncheck auto-assign / adjust the sector manually above.
+        </div>
+        <input type="hidden" name="confirm_overwrite_sector" value="1">
+        <button type="submit" class="btn-full" style="max-width:260px; background:var(--clr-error);">
+          Confirm — Overwrite Sector &amp; Save
+        </button>
         <a href="<?= base_url('officer/member_view.php?id=' . $memberId) ?>" style="margin-left:1rem;">Cancel</a>
+      <?php else: ?>
+        <button type="submit" class="btn-full" style="max-width:220px;">
+          <?= $editingLot ? 'Update Lot' : 'Add Lot' ?>
+        </button>
+        <?php if ($editingLot): ?>
+          <a href="<?= base_url('officer/member_view.php?id=' . $memberId) ?>" style="margin-left:1rem;">Cancel</a>
+        <?php endif; ?>
       <?php endif; ?>
     </form>
   </main>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="<?= base_url('assets/js/dashboard.js') ?>"></script>
+<script>
+  window.BAMBOSA_LOT_LOCATION_PICKER = {
+    mapElementId: 'lotLocationMap',
+    latInputId: 'latitude',
+    lngInputId: 'longitude',
+    clearButtonId: 'btnClearPin',
+    initialLat: <?= $editingLot && $editingLot['latitude'] !== null ? json_encode((float) $editingLot['latitude']) : 'null' ?>,
+    initialLng: <?= $editingLot && $editingLot['longitude'] !== null ? json_encode((float) $editingLot['longitude']) : 'null' ?>,
+    defaultCenter: <?= $pickerDefaultCenter ? json_encode($pickerDefaultCenter) : 'null' ?>
+  };
+</script>
+<script src="<?= base_url('assets/js/lot-location-picker.js') ?>"></script>
 </body>
 </html>

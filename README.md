@@ -25,6 +25,7 @@ bambosa/
 │   ├── session.php              # session_start() bootstrap (uses base_path_utils.php for cookie path)
 │   ├── auth.php                 # require_login(), require_role(), CSRF helpers (uses base_path_utils.php for redirects)
 │   ├── members.php              # Member, farm-lot, sector & map data access
+│   ├── sector_boundaries.php     # Polygon storage, point-in-polygon test, auto-assignment logic
 │   ├── machinery.php             # Machinery + reservation data access
 │   ├── schedules.php              # Rotation schedule data access
 │   ├── billing.php                 # ISF billing periods, bills, payments data access
@@ -36,15 +37,18 @@ bambosa/
 ├── officer/
 │   ├── dashboard.php           # Protected — role must be 'officer'
 │   ├── members.php              # List/filter members, approve/deactivate
-│   ├── member_view.php           # View one member + manage their farm lots (CRUD)
+│   ├── member_view.php           # View one member + manage their farm lots (CRUD, with auto-assign option)
 │   ├── update_status.php          # POST handler for approve/deactivate/reactivate
 │   ├── sectors.php                 # Sector CRUD (name, description, usage counts)
-│   ├── billing_periods.php          # Open/edit/close/delete billing periods
-│   ├── billing_period_view.php       # Generate bills, view/filter bills, record payments
-│   ├── machinery.php                  # Manage machinery list (add/edit/delete/availability)
-│   ├── reservations.php                # Approve/reject/cancel member reservation requests
-│   ├── schedules.php                    # Create/edit/delete water rotation schedule entries
-│   └── map.php                           # All members' farm lots plotted on a Leaflet map
+│   ├── sector_boundaries.php        # Draw/edit sector boundary polygons on a map
+│   ├── sector_boundary_save.php      # AJAX: save a polygon, optionally trigger auto-assignment
+│   ├── sector_boundary_preview.php    # AJAX: live "N farm lots would match" preview while drawing
+│   ├── billing_periods.php             # Open/edit/close/delete billing periods
+│   ├── billing_period_view.php          # Generate bills, view/filter bills, record payments
+│   ├── machinery.php                     # Manage machinery list (add/edit/delete/availability)
+│   ├── reservations.php                   # Approve/reject/cancel member reservation requests
+│   ├── schedules.php                       # Create/edit/delete water rotation schedule entries
+│   └── map.php                              # All members' farm lots + sector boundaries on a Leaflet map
 ├── member/
 │   ├── dashboard.php           # Protected — role must be 'member'
 │   ├── profile.php              # Edit own name/contact; view (read-only) farm lots
@@ -54,11 +58,15 @@ bambosa/
 │   └── map.php                      # View own farm lot(s) plotted on a Leaflet map
 ├── assets/
 │   ├── css/style.css           # All styling, including responsive breakpoints + map styles
-│   └── js/dashboard.js          # Mobile sidebar drawer toggle (vanilla JS, no deps)
+│   └── js/
+│       ├── dashboard.js         # Mobile sidebar drawer toggle (vanilla JS, no deps)
+│       ├── sector-boundaries.js  # Leaflet.draw polygon editor + live preview + save (vanilla JS)
+│       └── lot-location-picker.js # Click-to-pin map picker for the farm lot form (vanilla JS)
 └── sql/
     ├── bambosa_db.sql         # Full schema (fresh install) + seed officer account
     ├── migrations/
-    │   ├── 001_isf_billing.sql # Adds billing_periods/isf_bills/isf_payments to an EXISTING db
+    │   ├── 001_isf_billing.sql      # Adds billing_periods/isf_bills/isf_payments to an EXISTING db
+    │   ├── 002_sector_polygons.sql   # Adds sectors.boundary_geojson + sector_auto_assignments to an EXISTING db
     │   └── .htaccess
     └── .htaccess
 ```
@@ -69,21 +77,25 @@ bambosa/
 1. Copy the `bambosa/` folder into `htdocs/`.
 2. Start Apache + MySQL in XAMPP.
 3. Open phpMyAdmin, import `sql/bambosa_db.sql`. This single file creates
-   every table — including the ISF billing tables — so you don't need to
-   run anything from `sql/migrations/` separately.
+   every table — including ISF billing and sector boundaries — so you don't
+   need to run anything from `sql/migrations/` separately.
 4. Edit `config/database.php` with your DB username/password (XAMPP
    default is usually `root` with empty password — already set).
 5. Visit `http://localhost/bambosa/`.
 
-**Existing install (database already created before ISF billing was added):**
+**Existing install (database created before a given feature was added):**
 1. Pull the updated code into your `bambosa/` folder as normal.
 2. In phpMyAdmin, open your existing `bambosa_db` database and import
-   `sql/migrations/001_isf_billing.sql`. This adds the three new tables
-   (`billing_periods`, `isf_bills`, `isf_payments`) without touching any
-   data you already have in `users`, `farm_lots`, `sectors`, etc.
-3. No other changes needed — the migration is safe to re-run if you're
-   ever unsure whether it was already applied (`CREATE TABLE IF NOT EXISTS`
-   throughout, plus an idempotency check before adding indexes).
+   whichever migration file(s) you haven't run yet, **in numeric order**:
+   - `sql/migrations/001_isf_billing.sql` — adds `billing_periods`,
+     `isf_bills`, `isf_payments`.
+   - `sql/migrations/002_sector_polygons.sql` — adds `boundary_geojson` to
+     `sectors` and creates `sector_auto_assignments`.
+3. None of this touches data you already have in `users`, `farm_lots`,
+   `sectors`, etc. Both migrations are safe to re-run if you're ever unsure
+   whether one was already applied (`CREATE TABLE IF NOT EXISTS` throughout,
+   plus a column-existence / idempotency check before altering tables or
+   adding indexes).
 
 Future schema changes will follow this same pattern: a new
 `sql/migrations/NNN_description.sql` file for existing installs, with the
@@ -209,6 +221,17 @@ only need to be maintained in one place per role.
   Land area and sector are officer-managed only, since they directly drive
   ISF billing in Epic 3 — self-editing would create a billing integrity risk.
 - All data access goes through `includes/members.php` (prepared statements only).
+- **Location picking:** the farm lot form includes an interactive map
+  (`assets/js/lot-location-picker.js`, Leaflet-based) instead of requiring
+  an officer to type raw coordinates. Clicking the map drops a pin and
+  fills the latitude/longitude fields automatically; dragging an existing
+  pin updates them again. The text fields are still there and still
+  editable directly — typing into them moves the pin too, so the two stay
+  in sync — since coordinates copied from a GPS device or written down in
+  the field are still a legitimate way to enter a location. The map
+  centers on the lot's existing location when editing, or the average of
+  all other farm lots' locations when adding a new one (falling back to a
+  wide default view only if no farm lot anywhere has coordinates yet).
 
 ## Machinery Reservation System (implemented — simplified version)
 
@@ -285,6 +308,63 @@ both loaded from a CDN.
   table of farm boundaries) becomes available later, this map is the
   natural place to layer it in — Leaflet supports GeoJSON overlays directly.
 
+## Sector Boundaries & Auto-Assignment (implemented)
+
+Since a real QGIS-exported boundary dataset for Barangay Bikal isn't
+available yet, this lets an officer **draw** each sector's boundary
+directly on the map instead, using the same fundamental technique a GIS
+tool uses for a spatial join: point-in-polygon testing. Farm lots whose
+coordinates fall inside a drawn boundary can then be assigned to that
+sector automatically.
+
+**How it works:**
+- `officer/sector_boundaries.php` — pick a sector from the dropdown, draw
+  its boundary as a polygon using **Leaflet.draw** (CDN-loaded, no API
+  key), edit/reshape it, then save. Other sectors' saved boundaries are
+  shown dimmed on the map for spatial context while you draw. A live
+  "Preview Matches" button shows which farm lots would fall inside the
+  polygon before you commit anything.
+- Boundaries are stored as a JSON array of `[lat, lng]` vertex pairs in a
+  new `sectors.boundary_geojson` column — intentionally simple (not full
+  GeoJSON Feature wrapping) since that's exactly the vertex list
+  Leaflet.draw hands back, and PHP only ever needs raw points for the
+  point-in-polygon test.
+- The point-in-polygon test itself (`point_in_polygon()` in
+  `includes/sector_boundaries.php`) is the standard ray-casting algorithm,
+  implemented in PHP as the authoritative version. A live-preview version
+  of the same logic (used while actively drawing, before saving) runs
+  server-side too, via the `officer/sector_boundary_preview.php` AJAX
+  endpoint — there's no separate JS re-implementation of the math to keep
+  in sync.
+- **Auto-assignment behavior:**
+  - Saving a boundary can optionally re-run assignment across **every**
+    farm lot with coordinates (checkbox, on by default) — only lots whose
+    sector would actually change are updated; already-correct lots are
+    left alone.
+  - On the farm lot form (`officer/member_view.php`), a per-save checkbox
+    lets an officer auto-assign just that one lot's sector from whatever
+    boundary its coordinates fall inside.
+  - **If auto-assignment would overwrite a sector the officer already
+    manually selected**, the form stops and shows an explicit confirmation
+    step naming the current vs. matched sector before proceeding — it
+    never silently overwrites an existing manual assignment.
+  - **Overlapping sector boundaries are allowed.** If a point falls inside
+    more than one polygon, the first match is used, and the officer is
+    told how many sectors overlapped there, rather than the system
+    guessing silently or blocking the save.
+  - Every automatic change is logged to `sector_auto_assignments` (lot,
+    previous sector, new sector, who triggered the run, when) and shown in
+    a "Recent Auto-Assignments" table at the bottom of the boundaries page
+    — so an officer can always see what the system changed on its own, as
+    opposed to a manual edit.
+- `officer/map.php` also renders any drawn boundaries as read-only, dimmed
+  polygons alongside the farm lot markers, so the general map view and the
+  boundary editor feel like one consistent picture of the association's
+  geography.
+- All of the drawing/preview/save interactivity is vanilla JavaScript
+  (`assets/js/sector-boundaries.js`) talking to two small JSON API
+  endpoints — no framework, consistent with the rest of the stack.
+
 ## Epic 3: ISF Billing (implemented)
 
 **Calculation model.** Real Philippine irrigation associations (per NIA
@@ -341,11 +421,14 @@ already been converted to cash.
 - [x] Digital Rotation Scheduling — basic CRUD + sector-filtered viewer (simplified — no conflict detection)
 - [x] Responsive UI — mobile slide-in sidebar drawer, scrollable tables, responsive forms/nav
 - [x] Farm Map view — Leaflet-based web equivalent of the paper's QGIS mapping
+- [x] Sector Boundaries & Auto-Assignment — draw sector polygons, point-in-polygon farm lot matching, with confirm-before-overwrite and overlap warnings
 - [x] ISF Billing (Epic 3) — billing periods with configurable ₱/ha rate, bill generation, partial-payment tracking with audit trail
 
 All four specific objectives from Chapter 1 are now implemented, along
-with sector management and the responsive UI work that came up along the
-way. Possible follow-ups beyond the original scope, if useful later:
+with sector management, boundary-based auto-assignment, and the
+responsive UI work that came up along the way. Possible follow-ups beyond
+the original scope, if useful later:
 - Conflict detection for overlapping machinery reservations / rotation schedules (currently officer judgment calls)
 - Printable/PDF bill or receipt generation
-- A GeoJSON overlay of official farm boundaries on the map view, if a QGIS-exported dataset becomes available
+- Importing a real QGIS-exported boundary dataset (GeoJSON/shapefile) to replace or refine the manually-drawn polygons
+- Online payment integration (explicitly out of scope per the paper's own delimitations)

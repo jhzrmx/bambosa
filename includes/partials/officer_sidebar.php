@@ -2,7 +2,7 @@
 /**
  * Officer sidebar partial.
  * Expects $activeNav to be set by the including page to one of:
- * 'dashboard', 'members', 'sectors', 'billing', 'schedules', 'machinery', 'map'
+ * 'dashboard', 'members', 'sectors', 'boundaries', 'billing', 'schedules', 'machinery', 'map'
  * Renders: mobile topbar + overlay + the sidebar drawer itself.
  * The including page must open <div class="dash-shell"> before including
  * this, and close it (plus <main class="dash-main">) after.
@@ -28,6 +28,7 @@ $activeNav = $activeNav ?? '';
   <a href="<?= base_url('officer/dashboard.php') ?>" class="<?= $activeNav === 'dashboard' ? 'active' : '' ?>">Dashboard</a>
   <a href="<?= base_url('officer/members.php') ?>" class="<?= $activeNav === 'members' ? 'active' : '' ?>">Member Management</a>
   <a href="<?= base_url('officer/sectors.php') ?>" class="<?= $activeNav === 'sectors' ? 'active' : '' ?>">Sector Management</a>
+  <a href="<?= base_url('officer/sector_boundaries.php') ?>" class="<?= $activeNav === 'boundaries' ? 'active' : '' ?>">Sector Boundaries</a>
   <a href="<?= base_url('officer/billing_periods.php') ?>" class="<?= $activeNav === 'billing' ? 'active' : '' ?>">Billing &amp; ISF</a>
   <a href="<?= base_url('officer/schedules.php') ?>" class="<?= $activeNav === 'schedules' ? 'active' : '' ?>">Rotation Scheduling</a>
   <a href="<?= base_url('officer/machinery.php') ?>" class="<?= $activeNav === 'machinery' ? 'active' : '' ?>">Machinery Reservation</a>

@@ -66,7 +66,11 @@ $activeNav = 'sectors';
 
   <main class="dash-main">
     <h1>Sector Management</h1>
-    <p>Manage the irrigation sectors used to group farm lots, water rotation schedules, and (soon) billing rates.</p>
+    <p>
+      Manage the irrigation sectors used to group farm lots, water rotation schedules, and billing rates.
+      To draw a sector's map boundary and auto-assign farm lots inside it, see
+      <a href="<?= base_url('officer/sector_boundaries.php') ?>">Sector Boundaries</a>.
+    </p>
 
     <?php if ($flash === 'saved'): ?>
       <div class="alert alert-success">Sector saved.</div>

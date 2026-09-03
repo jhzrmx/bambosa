@@ -30,9 +30,12 @@ CREATE TABLE IF NOT EXISTS login_logs (
 
 -- Sectors of Barangay Bikal used for water rotation grouping (Epic 4 will use this too)
 CREATE TABLE IF NOT EXISTS sectors (
-    sector_id   INT AUTO_INCREMENT PRIMARY KEY,
-    sector_name VARCHAR(80) NOT NULL UNIQUE,
-    description VARCHAR(255) DEFAULT NULL
+    sector_id        INT AUTO_INCREMENT PRIMARY KEY,
+    sector_name      VARCHAR(80) NOT NULL UNIQUE,
+    description      VARCHAR(255) DEFAULT NULL,
+    -- Polygon vertices as a JSON array of [lat, lng] pairs, drawn by an
+    -- officer on the map. NULL means no boundary has been drawn yet.
+    boundary_geojson JSON DEFAULT NULL
 ) ENGINE=InnoDB;
 
 INSERT INTO sectors (sector_name, description) VALUES
@@ -157,6 +160,22 @@ CREATE TABLE IF NOT EXISTS isf_payments (
 CREATE INDEX idx_isf_bills_user ON isf_bills(user_id);
 CREATE INDEX idx_isf_bills_period ON isf_bills(period_id);
 CREATE INDEX idx_isf_bills_status ON isf_bills(status);
+
+-- Auto-assignment audit log: records each time a farm lot's sector was set
+-- automatically because its coordinates fell inside a drawn sector polygon
+-- (as opposed to an officer manually picking a sector on the farm lot form).
+CREATE TABLE IF NOT EXISTS sector_auto_assignments (
+    assignment_id       INT AUTO_INCREMENT PRIMARY KEY,
+    lot_id              INT NOT NULL,
+    previous_sector_id  INT DEFAULT NULL,
+    new_sector_id       INT NOT NULL,
+    assigned_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    assigned_by         INT DEFAULT NULL,
+    FOREIGN KEY (lot_id) REFERENCES farm_lots(lot_id) ON DELETE CASCADE,
+    FOREIGN KEY (previous_sector_id) REFERENCES sectors(sector_id) ON DELETE SET NULL,
+    FOREIGN KEY (new_sector_id) REFERENCES sectors(sector_id) ON DELETE CASCADE,
+    FOREIGN KEY (assigned_by) REFERENCES users(user_id) ON DELETE SET NULL
+) ENGINE=InnoDB;
 
 -- Default password: 12345678
 -- Hash generated with PHP password_hash() using PASSWORD_DEFAULT

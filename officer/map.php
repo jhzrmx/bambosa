@@ -3,11 +3,13 @@ require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/members.php';
+require_once __DIR__ . '/../includes/sector_boundaries.php';
 
 require_role('officer');
 
 $mappedLots = get_mapped_farm_lots($pdo);
 $unmappedCount = count_unmapped_farm_lots($pdo);
+$sectorsWithBoundaries = get_sectors_with_boundaries($pdo);
 
 // Build a simple, stable color per sector name so the same sector always
 // gets the same marker color across page loads.
@@ -18,6 +20,14 @@ foreach ($mappedLots as $lot) {
     $key = $lot['sector_name'] ?? 'Unassigned';
     if (!isset($sectorColors[$key])) {
         $sectorColors[$key] = $palette[$colorIndex % count($palette)];
+        $colorIndex++;
+    }
+}
+// Make sure every sector that has a boundary also gets a color, even if it
+// currently has no farm lots plotted (so its polygon still renders sensibly).
+foreach ($sectorsWithBoundaries as $sb) {
+    if (!isset($sectorColors[$sb['sector_name']])) {
+        $sectorColors[$sb['sector_name']] = $palette[$colorIndex % count($palette)];
         $colorIndex++;
     }
 }
@@ -36,6 +46,14 @@ $mapPoints = array_map(function ($lot) use ($sectorColors) {
         'ownerLink' => base_url('officer/member_view.php?id=' . (int) $lot['user_id']),
     ];
 }, $mappedLots);
+
+$boundaryPolygons = array_map(function ($sb) use ($sectorColors) {
+    return [
+        'name'     => $sb['sector_name'],
+        'color'    => $sectorColors[$sb['sector_name']],
+        'boundary' => $sb['boundary'],
+    ];
+}, $sectorsWithBoundaries);
 
 $activeNav = 'map';
 ?>
@@ -57,7 +75,8 @@ $activeNav = 'map';
     <h1>Member Farm Map</h1>
     <p>
       A geographic view of registered farm lots across Barangay Bikal, built from the
-      coordinates recorded on each member's <a href="<?= base_url('officer/members.php') ?>">farm lot record</a>.
+      coordinates recorded on each member's <a href="<?= base_url('officer/members.php') ?>">farm lot record</a>,
+      with any drawn <a href="<?= base_url('officer/sector_boundaries.php') ?>">sector boundaries</a> shown for context.
       This is the platform's web-facing equivalent of the QGIS mapping described in the
       project scope — coordinates are entered once per lot and plotted here automatically.
     </p>
@@ -95,16 +114,32 @@ $activeNav = 'map';
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="<?= base_url('assets/js/dashboard.js') ?>"></script>
-<?php if (!empty($mappedLots)): ?>
+<?php if (!empty($mappedLots) || !empty($boundaryPolygons)): ?>
 <script>
 (function () {
   var points = <?= json_encode($mapPoints, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+  var boundaries = <?= json_encode($boundaryPolygons, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
   var map = L.map('farmMap');
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }).addTo(map);
+
+  var fitTargets = [];
+
+  // Draw sector boundaries first so farm lot markers render on top of them.
+  boundaries.forEach(function (b) {
+    if (!b.boundary || b.boundary.length < 3) return;
+    var poly = L.polygon(b.boundary, {
+      color: b.color,
+      weight: 2,
+      opacity: 0.7,
+      fillOpacity: 0.1
+    }).bindTooltip(b.name, { sticky: true });
+    poly.addTo(map);
+    b.boundary.forEach(function (pt) { fitTargets.push(pt); });
+  });
 
   var markers = [];
   points.forEach(function (p) {
@@ -127,6 +162,7 @@ $activeNav = 'map';
 
     marker.bindPopup(popupHtml);
     markers.push(marker);
+    fitTargets.push([p.lat, p.lng]);
   });
 
   function escapeHtml(str) {
@@ -135,11 +171,13 @@ $activeNav = 'map';
     return div.innerHTML;
   }
 
-  if (markers.length === 1) {
-    map.setView([points[0].lat, points[0].lng], 15);
+  if (fitTargets.length === 1) {
+    map.setView(fitTargets[0], 15);
+  } else if (fitTargets.length > 1) {
+    map.fitBounds(L.latLngBounds(fitTargets).pad(0.15));
   } else {
-    var group = L.featureGroup(markers);
-    map.fitBounds(group.getBounds().pad(0.15));
+    // No farm lots plotted yet — default to Barangay Bikal, Libmanan, Camarines Sur.
+    map.setView([13.723053, 122.986048], 14);
   }
 })();
 </script>

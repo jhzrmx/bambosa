@@ -239,6 +239,27 @@ function count_unmapped_farm_lots(PDO $pdo): int
     return (int) $row['cnt'];
 }
 
+/**
+ * A reasonable default map center for the farm-lot location picker: the
+ * average latitude/longitude across every farm lot that already has
+ * coordinates. Returns null if no lots have coordinates yet, in which
+ * case the caller should fall back to a generic wide view instead of
+ * guessing a specific town center with no data to anchor it.
+ */
+function get_average_farm_lot_location(PDO $pdo): ?array
+{
+    $row = $pdo->query(
+        "SELECT AVG(latitude) AS avg_lat, AVG(longitude) AS avg_lng, COUNT(*) AS cnt
+         FROM farm_lots WHERE latitude IS NOT NULL AND longitude IS NOT NULL"
+    )->fetch();
+
+    if (!$row || (int) $row['cnt'] === 0) {
+        return null;
+    }
+
+    return ['lat' => (float) $row['avg_lat'], 'lng' => (float) $row['avg_lng']];
+}
+
 /** Farm lots for one member that HAVE coordinates, joined with sector name, for the member's own map. */
 function get_mapped_farm_lots_by_user(PDO $pdo, int $userId): array
 {

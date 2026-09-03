@@ -280,6 +280,24 @@ footer.site-footer {
 }
 .btn-full:hover { background: var(--clr-primary-dark); }
 
+/* Groups multiple .btn-full buttons (and/or links) side by side with even
+   spacing, wrapping onto their own full-width rows on narrow screens
+   instead of overlapping or trailing off with manual inline margins. */
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  align-items: center;
+}
+.btn-row .btn-full {
+  width: auto;
+  flex: 1 1 200px;
+  max-width: 260px;
+}
+@media (max-width: 480px) {
+  .btn-row .btn-full { flex-basis: 100%; max-width: none; }
+}
+
 .auth-footer-link {
   text-align: center;
   margin-top: 1.4rem;
@@ -661,6 +679,14 @@ footer.site-footer {
   box-shadow: var(--shadow);
   overflow: hidden;
   border: 1px solid var(--clr-border);
+  /* Leaflet's own panes/controls (zoom, draw toolbar, popups) use z-index
+     values up into the hundreds/low thousands. Without this, they can
+     render above the app's fixed mobile topbar/drawer/overlay, which sit
+     much lower (20-30), since Leaflet creates its own internal stacking
+     context. Explicitly establishing and capping the stacking context
+     here keeps everything Leaflet draws confined below our own chrome. */
+  position: relative;
+  z-index: 1;
 }
 
 .map-container-small {
