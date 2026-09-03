@@ -213,7 +213,7 @@
             matchText.textContent = 'No farm lots fall inside this polygon.';
           } else {
             var names = data.matched_lots.slice(0, 5).map(function (l) {
-              return escapeHtml(l.lotName) + ' (' + escapeHtml(l.owner) + ')';
+              return escapeHtml(l.lot_name) + ' (' + escapeHtml(l.owner) + ')';
             }).join(', ');
             var more = data.matched_count > 5 ? ', and ' + (data.matched_count - 5) + ' more' : '';
             matchText.innerHTML = '<strong>' + data.matched_count + '</strong> farm lot' +
