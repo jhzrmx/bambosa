@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/billing.php';
 require_role('officer');
 
 $errors = [];
+$isAddingOrEditing = isset($_GET["new"]) || isset($_GET["edit"]);
 $editingPeriod = null;
 
 if (isset($_GET['edit'])) {
@@ -122,104 +123,107 @@ $activeNav = 'billing';
         <?php foreach ($errors as $err): ?><div><?= htmlspecialchars($err) ?></div><?php endforeach; ?>
       </div>
     <?php endif; ?>
-
-    <div class="table-scroll">
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Period</th>
-          <th>Rate / ha</th>
-          <th>Dates</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php if (empty($periods)): ?>
-          <tr><td colspan="5" class="empty-row">No billing periods yet.</td></tr>
-        <?php else: foreach ($periods as $p): ?>
+	
+	<?php if (!$isAddingOrEditing): ?>
+      <div class="table-scroll">
+      <table class="data-table">
+        <thead>
           <tr>
-            <td><a href="<?= base_url('officer/billing_period_view.php?id=' . (int) $p['period_id']) ?>"><?= htmlspecialchars($p['period_name']) ?></a></td>
-            <td>₱<?= number_format((float) $p['rate_per_ha'], 2) ?></td>
-            <td><?= htmlspecialchars($p['start_date']) ?> &rarr; <?= htmlspecialchars($p['end_date']) ?></td>
-            <td><span class="status-badge <?= $p['status'] === 'open' ? 'status-active' : 'status-inactive' ?>"><?= htmlspecialchars($p['status']) ?></span></td>
-            <td class="actions-cell">
-              <a href="<?= base_url('officer/billing_period_view.php?id=' . (int) $p['period_id']) ?>" class="link-btn">View Bills</a>
-              <?php if ($p['status'] === 'open'): ?>
-                <a href="<?= base_url('officer/billing_periods.php?edit=' . (int) $p['period_id']) ?>" class="link-btn">Edit</a>
-                <form method="POST" class="inline-form">
-                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-                  <input type="hidden" name="action" value="toggle_status">
-                  <input type="hidden" name="period_id" value="<?= (int) $p['period_id'] ?>">
-                  <input type="hidden" name="new_status" value="closed">
-                  <button type="submit" class="link-btn deactivate" onclick="return confirm('Close this billing period? Bills can no longer be generated or regenerated once closed.');">Close</button>
-                </form>
-              <?php else: ?>
-                <form method="POST" class="inline-form">
-                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-                  <input type="hidden" name="action" value="toggle_status">
-                  <input type="hidden" name="period_id" value="<?= (int) $p['period_id'] ?>">
-                  <input type="hidden" name="new_status" value="open">
-                  <button type="submit" class="link-btn approve">Reopen</button>
-                </form>
-              <?php endif; ?>
-              <form method="POST" class="inline-form" onsubmit="return confirm('Delete this billing period? This permanently removes ALL bills and payment records under it. This cannot be undone.');">
-                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-                <input type="hidden" name="action" value="delete">
-                <input type="hidden" name="period_id" value="<?= (int) $p['period_id'] ?>">
-                <button type="submit" class="link-btn deactivate">Delete</button>
-              </form>
-            </td>
+            <th>Period</th>
+            <th>Rate / ha</th>
+            <th>Dates</th>
+            <th>Status</th>
+            <th>Actions</th>
           </tr>
-        <?php endforeach; endif; ?>
-      </tbody>
-    </table>
-    </div>
-
-    <h2 class="section-heading"><?= $editingPeriod ? 'Edit Billing Period' : 'Open New Billing Period' ?></h2>
-
-    <form method="POST" action="<?= base_url('officer/billing_periods.php') ?>" class="inline-card-form">
-      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-      <input type="hidden" name="action" value="save">
-      <input type="hidden" name="period_id" value="<?= $editingPeriod ? (int) $editingPeriod['period_id'] : 0 ?>">
-
-      <div class="form-group">
-        <label for="period_name">Period Name</label>
-        <input type="text" id="period_name" name="period_name" required
-               value="<?= htmlspecialchars($editingPeriod['period_name'] ?? '') ?>" placeholder="e.g. Wet Season 2026">
+        </thead>
+        <tbody>
+          <?php if (empty($periods)): ?>
+            <tr><td colspan="5" class="empty-row">No billing periods yet.</td></tr>
+          <?php else: foreach ($periods as $p): ?>
+            <tr>
+              <td><a href="<?= base_url('officer/billing_period_view.php?id=' . (int) $p['period_id']) ?>"><?= htmlspecialchars($p['period_name']) ?></a></td>
+              <td>₱<?= number_format((float) $p['rate_per_ha'], 2) ?></td>
+              <td><?= htmlspecialchars($p['start_date']) ?> &rarr; <?= htmlspecialchars($p['end_date']) ?></td>
+              <td><span class="status-badge <?= $p['status'] === 'open' ? 'status-active' : 'status-inactive' ?>"><?= htmlspecialchars($p['status']) ?></span></td>
+              <td class="actions-cell">
+                <a href="<?= base_url('officer/billing_period_view.php?id=' . (int) $p['period_id']) ?>" class="link-btn">View Bills</a>
+                <?php if ($p['status'] === 'open'): ?>
+                  <a href="<?= base_url('officer/billing_periods.php?edit=' . (int) $p['period_id']) ?>" class="link-btn">Edit</a>
+                  <form method="POST" class="inline-form">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                    <input type="hidden" name="action" value="toggle_status">
+                    <input type="hidden" name="period_id" value="<?= (int) $p['period_id'] ?>">
+                    <input type="hidden" name="new_status" value="closed">
+                    <button type="submit" class="link-btn deactivate" onclick="return confirm('Close this billing period? Bills can no longer be generated or regenerated once closed.');">Close</button>
+                  </form>
+                <?php else: ?>
+                  <form method="POST" class="inline-form">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                    <input type="hidden" name="action" value="toggle_status">
+                    <input type="hidden" name="period_id" value="<?= (int) $p['period_id'] ?>">
+                    <input type="hidden" name="new_status" value="open">
+                    <button type="submit" class="link-btn approve">Reopen</button>
+                  </form>
+                <?php endif; ?>
+                <form method="POST" class="inline-form" onsubmit="return confirm('Delete this billing period? This permanently removes ALL bills and payment records under it. This cannot be undone.');">
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="period_id" value="<?= (int) $p['period_id'] ?>">
+                  <button type="submit" class="link-btn deactivate">Delete</button>
+                </form>
+              </td>
+            </tr>
+          <?php endforeach; endif; ?>
+        </tbody>
+      </table>
       </div>
-
-      <div class="form-group">
-        <label for="rate_per_ha">Rate per Hectare (₱)</label>
-        <input type="number" step="0.01" min="0.01" id="rate_per_ha" name="rate_per_ha" required
-               value="<?= htmlspecialchars($editingPeriod['rate_per_ha'] ?? '') ?>" placeholder="e.g. 750.00">
-      </div>
-
-      <div class="form-row">
+	  <a href="<?= base_url('officer/billing_periods.php?') . '&new='?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Open New Billing Period</button></a>
+	<?php endif; ?>
+	
+	<?php if ($isAddingOrEditing): ?>
+      <h2 class="section-heading"><?= $editingPeriod ? 'Edit Billing Period' : 'Open New Billing Period' ?></h2>
+	  
+      <form method="POST" action="<?= base_url('officer/billing_periods.php') ?>" class="inline-card-form">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+        <input type="hidden" name="action" value="save">
+        <input type="hidden" name="period_id" value="<?= $editingPeriod ? (int) $editingPeriod['period_id'] : 0 ?>">
+	  
         <div class="form-group">
-          <label for="start_date">Start Date</label>
-          <input type="date" id="start_date" name="start_date" required
-                 value="<?= htmlspecialchars($editingPeriod['start_date'] ?? '') ?>">
+          <label for="period_name">Period Name</label>
+          <input type="text" id="period_name" name="period_name" required
+                 value="<?= htmlspecialchars($editingPeriod['period_name'] ?? '') ?>" placeholder="e.g. Wet Season 2026">
         </div>
+	  
         <div class="form-group">
-          <label for="end_date">End Date</label>
-          <input type="date" id="end_date" name="end_date" required
-                 value="<?= htmlspecialchars($editingPeriod['end_date'] ?? '') ?>">
+          <label for="rate_per_ha">Rate per Hectare (₱)</label>
+          <input type="number" step="0.01" min="0.01" id="rate_per_ha" name="rate_per_ha" required
+                 value="<?= htmlspecialchars($editingPeriod['rate_per_ha'] ?? '') ?>" placeholder="e.g. 750.00">
         </div>
-      </div>
-
-      <div class="form-group">
-        <label for="notes">Notes (optional)</label>
-        <input type="text" id="notes" name="notes" value="<?= htmlspecialchars($editingPeriod['notes'] ?? '') ?>">
-      </div>
-
-      <button type="submit" class="btn-full" style="max-width:220px;">
-        <?= $editingPeriod ? 'Update Period' : 'Open Period' ?>
-      </button>
-      <?php if ($editingPeriod): ?>
+	  
+        <div class="form-row">
+          <div class="form-group">
+            <label for="start_date">Start Date</label>
+            <input type="date" id="start_date" name="start_date" required
+                   value="<?= htmlspecialchars($editingPeriod['start_date'] ?? '') ?>">
+          </div>
+          <div class="form-group">
+            <label for="end_date">End Date</label>
+            <input type="date" id="end_date" name="end_date" required
+                   value="<?= htmlspecialchars($editingPeriod['end_date'] ?? '') ?>">
+          </div>
+        </div>
+	  
+        <div class="form-group">
+          <label for="notes">Notes (optional)</label>
+          <input type="text" id="notes" name="notes" value="<?= htmlspecialchars($editingPeriod['notes'] ?? '') ?>">
+        </div>
+	  
+        <button type="submit" class="btn-full" style="max-width:220px;">
+          <?= $editingPeriod ? 'Update Period' : 'Open Period' ?>
+        </button>
         <a href="<?= base_url('officer/billing_periods.php') ?>" style="margin-left:1rem;">Cancel</a>
-      <?php endif; ?>
-    </form>
+      </form>
+	<?php endif; ?>
   </main>
 </div>
 

@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/schedules.php';
 require_role('officer');
 
 $errors = [];
+$isAddingOrEditing = isset($_GET["new"]) || isset($_GET["edit"]);
 $editingSchedule = null;
 
 if (isset($_GET['edit'])) {
@@ -86,87 +87,90 @@ $activeNav = 'schedules';
         <?php foreach ($errors as $err): ?><div><?= htmlspecialchars($err) ?></div><?php endforeach; ?>
       </div>
     <?php endif; ?>
-
-    <div class="table-scroll">
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Sector</th>
-          <th>Start</th>
-          <th>End</th>
-          <th>Notes</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php if (empty($schedules)): ?>
-          <tr><td colspan="5" class="empty-row">No rotation schedules posted yet.</td></tr>
-        <?php else: foreach ($schedules as $s): ?>
+	
+	<?php if (!$isAddingOrEditing): ?>
+      <div class="table-scroll">
+      <table class="data-table">
+        <thead>
           <tr>
-            <td><?= htmlspecialchars($s['sector_name']) ?></td>
-            <td><?= htmlspecialchars(date('M j, Y g:i A', strtotime($s['start_time']))) ?></td>
-            <td><?= htmlspecialchars(date('M j, Y g:i A', strtotime($s['end_time']))) ?></td>
-            <td><?= htmlspecialchars($s['notes'] ?? '—') ?></td>
-            <td class="actions-cell">
-              <a href="<?= base_url('officer/schedules.php?edit=' . (int) $s['schedule_id']) ?>" class="link-btn">Edit</a>
-              <form method="POST" class="inline-form" onsubmit="return confirm('Delete this schedule entry?');">
-                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-                <input type="hidden" name="action" value="delete">
-                <input type="hidden" name="schedule_id" value="<?= (int) $s['schedule_id'] ?>">
-                <button type="submit" class="link-btn deactivate">Delete</button>
-              </form>
-            </td>
+            <th>Sector</th>
+            <th>Start</th>
+            <th>End</th>
+            <th>Notes</th>
+            <th>Actions</th>
           </tr>
-        <?php endforeach; endif; ?>
-      </tbody>
-    </table>
-    </div>
-
-    <h2 class="section-heading"><?= $editingSchedule ? 'Edit Schedule' : 'Add New Schedule' ?></h2>
-
-    <form method="POST" action="<?= base_url('officer/schedules.php') ?>" class="inline-card-form">
-      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-      <input type="hidden" name="action" value="save">
-      <input type="hidden" name="schedule_id" value="<?= $editingSchedule ? (int) $editingSchedule['schedule_id'] : 0 ?>">
-
-      <div class="form-group">
-        <label for="sector_id">Sector</label>
-        <select id="sector_id" name="sector_id" required>
-          <option value="">— Select —</option>
-          <?php foreach ($sectors as $sec): ?>
-            <option value="<?= (int) $sec['sector_id'] ?>"
-              <?= ($editingSchedule['sector_id'] ?? null) == $sec['sector_id'] ? 'selected' : '' ?>>
-              <?= htmlspecialchars($sec['sector_name']) ?>
-            </option>
-          <?php endforeach; ?>
-        </select>
+        </thead>
+        <tbody>
+          <?php if (empty($schedules)): ?>
+            <tr><td colspan="5" class="empty-row">No rotation schedules posted yet.</td></tr>
+          <?php else: foreach ($schedules as $s): ?>
+            <tr>
+              <td><?= htmlspecialchars($s['sector_name']) ?></td>
+              <td><?= htmlspecialchars(date('M j, Y g:i A', strtotime($s['start_time']))) ?></td>
+              <td><?= htmlspecialchars(date('M j, Y g:i A', strtotime($s['end_time']))) ?></td>
+              <td><?= htmlspecialchars($s['notes'] ?? '—') ?></td>
+              <td class="actions-cell">
+                <a href="<?= base_url('officer/schedules.php?edit=' . (int) $s['schedule_id']) ?>" class="link-btn">Edit</a>
+                <form method="POST" class="inline-form" onsubmit="return confirm('Delete this schedule entry?');">
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="schedule_id" value="<?= (int) $s['schedule_id'] ?>">
+                  <button type="submit" class="link-btn deactivate">Delete</button>
+                </form>
+              </td>
+            </tr>
+          <?php endforeach; endif; ?>
+        </tbody>
+      </table>
       </div>
-
-      <div class="form-row">
+	  <a href="<?= base_url('officer/schedules.php?') . '&new='?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Add New Schedule</button></a>
+	<?php endif; ?>
+	
+	<?php if ($isAddingOrEditing): ?>
+      <h2 class="section-heading"><?= $editingSchedule ? 'Edit Schedule' : 'Add New Schedule' ?></h2>
+	  
+      <form method="POST" action="<?= base_url('officer/schedules.php') ?>" class="inline-card-form">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+        <input type="hidden" name="action" value="save">
+        <input type="hidden" name="schedule_id" value="<?= $editingSchedule ? (int) $editingSchedule['schedule_id'] : 0 ?>">
+	  
         <div class="form-group">
-          <label for="start_time">Start Date &amp; Time</label>
-          <input type="datetime-local" id="start_time" name="start_time" required
-                 value="<?= $editingSchedule ? htmlspecialchars(str_replace(' ', 'T', substr($editingSchedule['start_time'], 0, 16))) : '' ?>">
+          <label for="sector_id">Sector</label>
+          <select id="sector_id" name="sector_id" required>
+            <option value="">— Select —</option>
+            <?php foreach ($sectors as $sec): ?>
+              <option value="<?= (int) $sec['sector_id'] ?>"
+                <?= ($editingSchedule['sector_id'] ?? null) == $sec['sector_id'] ? 'selected' : '' ?>>
+                <?= htmlspecialchars($sec['sector_name']) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
         </div>
+	  
+        <div class="form-row">
+          <div class="form-group">
+            <label for="start_time">Start Date &amp; Time</label>
+            <input type="datetime-local" id="start_time" name="start_time" required
+                   value="<?= $editingSchedule ? htmlspecialchars(str_replace(' ', 'T', substr($editingSchedule['start_time'], 0, 16))) : '' ?>">
+          </div>
+          <div class="form-group">
+            <label for="end_time">End Date &amp; Time</label>
+            <input type="datetime-local" id="end_time" name="end_time" required
+                   value="<?= $editingSchedule ? htmlspecialchars(str_replace(' ', 'T', substr($editingSchedule['end_time'], 0, 16))) : '' ?>">
+          </div>
+        </div>
+	  
         <div class="form-group">
-          <label for="end_time">End Date &amp; Time</label>
-          <input type="datetime-local" id="end_time" name="end_time" required
-                 value="<?= $editingSchedule ? htmlspecialchars(str_replace(' ', 'T', substr($editingSchedule['end_time'], 0, 16))) : '' ?>">
+          <label for="notes">Notes (optional)</label>
+          <input type="text" id="notes" name="notes" value="<?= htmlspecialchars($editingSchedule['notes'] ?? '') ?>">
         </div>
-      </div>
-
-      <div class="form-group">
-        <label for="notes">Notes (optional)</label>
-        <input type="text" id="notes" name="notes" value="<?= htmlspecialchars($editingSchedule['notes'] ?? '') ?>">
-      </div>
-
-      <button type="submit" class="btn-full" style="max-width:220px;">
-        <?= $editingSchedule ? 'Update Schedule' : 'Add Schedule' ?>
-      </button>
-      <?php if ($editingSchedule): ?>
+	  
+        <button type="submit" class="btn-full" style="max-width:220px;">
+          <?= $editingSchedule ? 'Update Schedule' : 'Add Schedule' ?>
+        </button>
         <a href="<?= base_url('officer/schedules.php') ?>" style="margin-left:1rem;">Cancel</a>
-      <?php endif; ?>
-    </form>
+      </form>
+	<?php endif; ?>
   </main>
 </div>
 

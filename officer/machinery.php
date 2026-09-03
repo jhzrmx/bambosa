@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/machinery.php';
 require_role('officer');
 
 $errors = [];
+$isAddingOrEditing = isset($_GET["new"]) || isset($_GET["edit"]);
 $editingMachinery = null;
 
 if (isset($_GET['edit'])) {
@@ -78,78 +79,81 @@ $activeNav = 'machinery';
         <?php foreach ($errors as $err): ?><div><?= htmlspecialchars($err) ?></div><?php endforeach; ?>
       </div>
     <?php endif; ?>
-
-    <div class="table-scroll">
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Description</th>
-          <th>Available?</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php if (empty($machineryList)): ?>
-          <tr><td colspan="4" class="empty-row">No machinery added yet.</td></tr>
-        <?php else: foreach ($machineryList as $m): ?>
+	
+	<?php if (!$isAddingOrEditing): ?>
+      <div class="table-scroll">
+      <table class="data-table">
+        <thead>
           <tr>
-            <td><?= htmlspecialchars($m['name']) ?></td>
-            <td><?= htmlspecialchars($m['description'] ?? '—') ?></td>
-            <td>
-              <span class="status-badge <?= $m['is_available'] ? 'status-active' : 'status-inactive' ?>">
-                <?= $m['is_available'] ? 'Available' : 'Unavailable' ?>
-              </span>
-            </td>
-            <td class="actions-cell">
-              <a href="<?= base_url('officer/machinery.php?edit=' . (int) $m['machinery_id']) ?>" class="link-btn">Edit</a>
-              <form method="POST" class="inline-form" onsubmit="return confirm('Delete this machinery record? Existing reservations for it will also be removed.');">
-                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-                <input type="hidden" name="action" value="delete">
-                <input type="hidden" name="machinery_id" value="<?= (int) $m['machinery_id'] ?>">
-                <button type="submit" class="link-btn deactivate">Delete</button>
-              </form>
-            </td>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Available?</th>
+            <th>Actions</th>
           </tr>
-        <?php endforeach; endif; ?>
-      </tbody>
-    </table>
-    </div>
-
-    <h2 class="section-heading"><?= $editingMachinery ? 'Edit Machinery' : 'Add New Machinery' ?></h2>
-
-    <form method="POST" action="<?= base_url('officer/machinery.php') ?>" class="inline-card-form">
-      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-      <input type="hidden" name="action" value="save">
-      <input type="hidden" name="machinery_id" value="<?= $editingMachinery ? (int) $editingMachinery['machinery_id'] : 0 ?>">
-
-      <div class="form-group">
-        <label for="name">Name</label>
-        <input type="text" id="name" name="name" required
-               value="<?= htmlspecialchars($editingMachinery['name'] ?? '') ?>" placeholder="e.g. Hand Tractor #2">
+        </thead>
+        <tbody>
+          <?php if (empty($machineryList)): ?>
+            <tr><td colspan="4" class="empty-row">No machinery added yet.</td></tr>
+          <?php else: foreach ($machineryList as $m): ?>
+            <tr>
+              <td><?= htmlspecialchars($m['name']) ?></td>
+              <td><?= htmlspecialchars($m['description'] ?? '—') ?></td>
+              <td>
+                <span class="status-badge <?= $m['is_available'] ? 'status-active' : 'status-inactive' ?>">
+                  <?= $m['is_available'] ? 'Available' : 'Unavailable' ?>
+                </span>
+              </td>
+              <td class="actions-cell">
+                <a href="<?= base_url('officer/machinery.php?edit=' . (int) $m['machinery_id']) ?>" class="link-btn">Edit</a>
+                <form method="POST" class="inline-form" onsubmit="return confirm('Delete this machinery record? Existing reservations for it will also be removed.');">
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="machinery_id" value="<?= (int) $m['machinery_id'] ?>">
+                  <button type="submit" class="link-btn deactivate">Delete</button>
+                </form>
+              </td>
+            </tr>
+          <?php endforeach; endif; ?>
+        </tbody>
+      </table>
       </div>
-
-      <div class="form-group">
-        <label for="description">Description (optional)</label>
-        <input type="text" id="description" name="description"
-               value="<?= htmlspecialchars($editingMachinery['description'] ?? '') ?>">
-      </div>
-
-      <div class="form-group">
-        <label>
-          <input type="checkbox" name="is_available" style="width:auto; display:inline-block;"
-            <?= (!$editingMachinery || $editingMachinery['is_available']) ? 'checked' : '' ?>>
-          Available for reservation
-        </label>
-      </div>
-
-      <button type="submit" class="btn-full" style="max-width:220px;">
-        <?= $editingMachinery ? 'Update Machinery' : 'Add Machinery' ?>
-      </button>
-      <?php if ($editingMachinery): ?>
+	  <a href="<?= base_url('officer/machinery.php?') . '&new='?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Add New Machinery</button></a>
+	<?php endif; ?>
+	
+	<?php if ($isAddingOrEditing): ?>
+      <h2 class="section-heading"><?= $editingMachinery ? 'Edit Machinery' : 'Add New Machinery' ?></h2>
+	  
+      <form method="POST" action="<?= base_url('officer/machinery.php') ?>" class="inline-card-form">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+        <input type="hidden" name="action" value="save">
+        <input type="hidden" name="machinery_id" value="<?= $editingMachinery ? (int) $editingMachinery['machinery_id'] : 0 ?>">
+	  
+        <div class="form-group">
+          <label for="name">Name</label>
+          <input type="text" id="name" name="name" required
+                 value="<?= htmlspecialchars($editingMachinery['name'] ?? '') ?>" placeholder="e.g. Hand Tractor #2">
+        </div>
+	  
+        <div class="form-group">
+          <label for="description">Description (optional)</label>
+          <input type="text" id="description" name="description"
+                 value="<?= htmlspecialchars($editingMachinery['description'] ?? '') ?>">
+        </div>
+	  
+        <div class="form-group">
+          <label>
+            <input type="checkbox" name="is_available" style="width:auto; display:inline-block;"
+              <?= (!$editingMachinery || $editingMachinery['is_available']) ? 'checked' : '' ?>>
+            Available for reservation
+          </label>
+        </div>
+	  
+        <button type="submit" class="btn-full" style="max-width:220px;">
+          <?= $editingMachinery ? 'Update Machinery' : 'Add Machinery' ?>
+        </button>
         <a href="<?= base_url('officer/machinery.php') ?>" style="margin-left:1rem;">Cancel</a>
-      <?php endif; ?>
-    </form>
+      </form>
+	<?php endif; ?>
   </main>
 </div>
 

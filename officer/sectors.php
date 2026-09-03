@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/members.php';
 require_role('officer');
 
 $errors = [];
+$isAddingOrEditing = isset($_GET["new"]) || isset($_GET["edit"]);
 $editingSector = null;
 
 if (isset($_GET['edit'])) {
@@ -83,74 +84,77 @@ $activeNav = 'sectors';
         <?php foreach ($errors as $err): ?><div><?= htmlspecialchars($err) ?></div><?php endforeach; ?>
       </div>
     <?php endif; ?>
-
-    <div class="table-scroll">
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Sector Name</th>
-          <th>Description</th>
-          <th>Farm Lots</th>
-          <th>Schedules</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php if (empty($sectors)): ?>
-          <tr><td colspan="5" class="empty-row">No sectors created yet.</td></tr>
-        <?php else: foreach ($sectors as $s): ?>
+	
+	<?php if (!$isAddingOrEditing): ?>
+      <div class="table-scroll">
+      <table class="data-table">
+        <thead>
           <tr>
-            <td><?= htmlspecialchars($s['sector_name']) ?></td>
-            <td><?= htmlspecialchars($s['description'] ?? '—') ?></td>
-            <td><?= (int) $s['lot_count'] ?></td>
-            <td><?= (int) $s['schedule_count'] ?></td>
-            <td class="actions-cell">
-              <a href="<?= base_url('officer/sectors.php?edit=' . (int) $s['sector_id']) ?>" class="link-btn">Edit</a>
-              <?php
-                $hasDependents = ((int) $s['lot_count'] > 0) || ((int) $s['schedule_count'] > 0);
-                $confirmMsg = $hasDependents
-                    ? "This sector has {$s['lot_count']} farm lot(s) and {$s['schedule_count']} schedule(s) linked to it. Deleting it will unassign those farm lots and permanently remove those schedules. Continue?"
-                    : 'Delete this sector?';
-              ?>
-              <form method="POST" class="inline-form" onsubmit="return confirm('<?= htmlspecialchars($confirmMsg, ENT_QUOTES) ?>');">
-                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-                <input type="hidden" name="action" value="delete">
-                <input type="hidden" name="sector_id" value="<?= (int) $s['sector_id'] ?>">
-                <button type="submit" class="link-btn deactivate">Delete</button>
-              </form>
-            </td>
+            <th>Sector Name</th>
+            <th>Description</th>
+            <th>Farm Lots</th>
+            <th>Schedules</th>
+            <th>Actions</th>
           </tr>
-        <?php endforeach; endif; ?>
-      </tbody>
-    </table>
-    </div>
-
-    <h2 class="section-heading"><?= $editingSector ? 'Edit Sector' : 'Add New Sector' ?></h2>
-
-    <form method="POST" action="<?= base_url('officer/sectors.php') ?>" class="inline-card-form">
-      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-      <input type="hidden" name="action" value="save">
-      <input type="hidden" name="sector_id" value="<?= $editingSector ? (int) $editingSector['sector_id'] : 0 ?>">
-
-      <div class="form-group">
-        <label for="sector_name">Sector Name</label>
-        <input type="text" id="sector_name" name="sector_name" required
-               value="<?= htmlspecialchars($editingSector['sector_name'] ?? '') ?>" placeholder="e.g. Sector D">
+        </thead>
+        <tbody>
+          <?php if (empty($sectors)): ?>
+            <tr><td colspan="5" class="empty-row">No sectors created yet.</td></tr>
+          <?php else: foreach ($sectors as $s): ?>
+            <tr>
+              <td><?= htmlspecialchars($s['sector_name']) ?></td>
+              <td><?= htmlspecialchars($s['description'] ?? '—') ?></td>
+              <td><?= (int) $s['lot_count'] ?></td>
+              <td><?= (int) $s['schedule_count'] ?></td>
+              <td class="actions-cell">
+                <a href="<?= base_url('officer/sectors.php?edit=' . (int) $s['sector_id']) ?>" class="link-btn">Edit</a>
+                <?php
+                  $hasDependents = ((int) $s['lot_count'] > 0) || ((int) $s['schedule_count'] > 0);
+                  $confirmMsg = $hasDependents
+                      ? "This sector has {$s['lot_count']} farm lot(s) and {$s['schedule_count']} schedule(s) linked to it. Deleting it will unassign those farm lots and permanently remove those schedules. Continue?"
+                      : 'Delete this sector?';
+                ?>
+                <form method="POST" class="inline-form" onsubmit="return confirm('<?= htmlspecialchars($confirmMsg, ENT_QUOTES) ?>');">
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="sector_id" value="<?= (int) $s['sector_id'] ?>">
+                  <button type="submit" class="link-btn deactivate">Delete</button>
+                </form>
+              </td>
+            </tr>
+          <?php endforeach; endif; ?>
+        </tbody>
+      </table>
       </div>
-
-      <div class="form-group">
-        <label for="description">Description (optional)</label>
-        <input type="text" id="description" name="description"
-               value="<?= htmlspecialchars($editingSector['description'] ?? '') ?>" placeholder="e.g. Northeast Bikal irrigation zone">
-      </div>
-
-      <button type="submit" class="btn-full" style="max-width:220px;">
-        <?= $editingSector ? 'Update Sector' : 'Add Sector' ?>
-      </button>
-      <?php if ($editingSector): ?>
+	  <a href="<?= base_url('officer/sectors.php?') . '&new='?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Add New Sector</button></a>
+	<?php endif; ?>
+	
+	<?php if ($isAddingOrEditing): ?>
+      <h2 class="section-heading"><?= $editingSector ? 'Edit Sector' : 'Add New Sector' ?></h2>
+	  
+      <form method="POST" action="<?= base_url('officer/sectors.php') ?>" class="inline-card-form">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+        <input type="hidden" name="action" value="save">
+        <input type="hidden" name="sector_id" value="<?= $editingSector ? (int) $editingSector['sector_id'] : 0 ?>">
+	  
+        <div class="form-group">
+          <label for="sector_name">Sector Name</label>
+          <input type="text" id="sector_name" name="sector_name" required
+                 value="<?= htmlspecialchars($editingSector['sector_name'] ?? '') ?>" placeholder="e.g. Sector D">
+        </div>
+	  
+        <div class="form-group">
+          <label for="description">Description (optional)</label>
+          <input type="text" id="description" name="description"
+                 value="<?= htmlspecialchars($editingSector['description'] ?? '') ?>" placeholder="e.g. Northeast Bikal irrigation zone">
+        </div>
+	  
+        <button type="submit" class="btn-full" style="max-width:220px;">
+          <?= $editingSector ? 'Update Sector' : 'Add Sector' ?>
+        </button>
         <a href="<?= base_url('officer/sectors.php') ?>" style="margin-left:1rem;">Cancel</a>
-      <?php endif; ?>
-    </form>
+      </form>
+	<?php endif; ?>
   </main>
 </div>
 
