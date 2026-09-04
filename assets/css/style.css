@@ -374,7 +374,7 @@ footer.site-footer {
 .dash-overlay.open { display: block; }
 
 .dash-sidebar {
-  width: 230px;
+  width: 260px;
   background: var(--clr-primary-dark);
   color: #fff;
   padding: 1.5rem 1rem;
@@ -395,18 +395,30 @@ footer.site-footer {
 }
 
 .dash-sidebar a {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+
   color: #eaf5ee;
   padding: 0.6rem 0.7rem;
   border-radius: 8px;
   margin-bottom: 0.3rem;
   font-size: 0.92rem;
+  text-decoration: none;
 }
+
 .dash-sidebar a:hover,
 .dash-sidebar a.active {
   background: rgba(255,255,255,0.12);
   text-decoration: none;
 }
+
+.dash-sidebar a svg {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+}
+
 
 .dash-sidebar form { margin-top: 2rem; }
 .dash-sidebar button.logout-btn {
