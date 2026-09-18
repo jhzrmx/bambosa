@@ -4,15 +4,63 @@
  * Requires $pdo from config/database.php to already be loaded.
  */
 
-/** All machinery, optionally filtered to only available ones. */
-function get_all_machinery(PDO $pdo, bool $onlyAvailable = false): array
+/**
+ * All machinery, optionally filtered to only available ones and/or by a
+ * search term (matched against name/description), optionally paginated.
+ *
+ * $limit/$offset: optional pagination window (both required together, or
+ * omit both to get every matching row).
+ */
+function get_all_machinery(PDO $pdo, bool $onlyAvailable = false, ?string $search = null, ?int $limit = null, ?int $offset = null): array
 {
-    $sql = 'SELECT * FROM machinery';
+    $sql = 'SELECT * FROM machinery WHERE 1=1';
+    $params = [];
+
     if ($onlyAvailable) {
-        $sql .= ' WHERE is_available = 1';
+        $sql .= ' AND is_available = 1';
     }
+
+    if ($search) {
+        $sql .= ' AND (name LIKE :search OR description LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
+
     $sql .= ' ORDER BY name';
-    return $pdo->query($sql)->fetchAll();
+
+    if ($limit !== null && $offset !== null) {
+        $sql .= ' LIMIT :limit OFFSET :offset';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value, PDO::PARAM_STR);
+    }
+    if ($limit !== null && $offset !== null) {
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+    return $stmt->fetchAll();
+}
+
+/** Count of machinery matching an optional availability/search filter (for pagination totals). */
+function count_machinery(PDO $pdo, bool $onlyAvailable = false, ?string $search = null): int
+{
+    $sql = 'SELECT COUNT(*) AS cnt FROM machinery WHERE 1=1';
+    $params = [];
+
+    if ($onlyAvailable) {
+        $sql .= ' AND is_available = 1';
+    }
+
+    if ($search) {
+        $sql .= ' AND (name LIKE :search OR description LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return (int) $stmt->fetch()['cnt'];
 }
 
 function get_machinery_by_id(PDO $pdo, int $id): ?array
@@ -53,24 +101,72 @@ function delete_machinery(PDO $pdo, int $id): void
 
 /**
  * All reservations, newest first, joined with machinery name and requester name.
- * Optional status filter.
+ * Optional status filter and/or search term (matched against machinery
+ * name, requester name, and purpose), optionally paginated.
+ *
+ * $limit/$offset: optional pagination window (both required together, or
+ * omit both to get every matching row).
  */
-function get_all_reservations(PDO $pdo, ?string $status = null): array
+function get_all_reservations(PDO $pdo, ?string $status = null, ?string $search = null, ?int $limit = null, ?int $offset = null): array
 {
     $sql = 'SELECT r.*, m.name AS machinery_name, u.full_name AS requester_name
             FROM machinery_reservations r
             JOIN machinery m ON m.machinery_id = r.machinery_id
-            JOIN users u ON u.user_id = r.user_id';
+            JOIN users u ON u.user_id = r.user_id
+            WHERE 1=1';
     $params = [];
+
     if ($status) {
-        $sql .= ' WHERE r.status = :status';
+        $sql .= ' AND r.status = :status';
         $params['status'] = $status;
     }
+
+    if ($search) {
+        $sql .= ' AND (m.name LIKE :search OR u.full_name LIKE :search OR r.purpose LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
+
     $sql .= ' ORDER BY r.start_date DESC, r.created_at DESC';
+
+    if ($limit !== null && $offset !== null) {
+        $sql .= ' LIMIT :limit OFFSET :offset';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value, PDO::PARAM_STR);
+    }
+    if ($limit !== null && $offset !== null) {
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+    return $stmt->fetchAll();
+}
+
+/** Count of reservations matching an optional status/search filter (for pagination totals). */
+function count_reservations(PDO $pdo, ?string $status = null, ?string $search = null): int
+{
+    $sql = 'SELECT COUNT(*) AS cnt
+            FROM machinery_reservations r
+            JOIN machinery m ON m.machinery_id = r.machinery_id
+            JOIN users u ON u.user_id = r.user_id
+            WHERE 1=1';
+    $params = [];
+
+    if ($status) {
+        $sql .= ' AND r.status = :status';
+        $params['status'] = $status;
+    }
+
+    if ($search) {
+        $sql .= ' AND (m.name LIKE :search OR u.full_name LIKE :search OR r.purpose LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    return $stmt->fetchAll();
+    return (int) $stmt->fetch()['cnt'];
 }
 
 /** Reservations belonging to one member, newest first. */

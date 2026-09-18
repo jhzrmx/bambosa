@@ -3,29 +3,35 @@ require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/machinery.php';
+require_once __DIR__ . '/../includes/pagination.php';
 
 require_role('officer');
 
 $statusFilter = $_GET['status'] ?? '';
 $statusFilter = in_array($statusFilter, ['pending', 'approved', 'rejected', 'cancelled'], true) ? $statusFilter : null;
+$searchTerm = get_search_term();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && csrf_verify($_POST['csrf_token'] ?? null)) {
     $reservationId = (int) ($_POST['reservation_id'] ?? 0);
     $newStatus = $_POST['status'] ?? '';
 
     if ($reservationId > 0 && in_array($newStatus, ['approved', 'rejected', 'cancelled'], true)) {
-        // Note: double-booking is flagged to the officer at request time (see
-        // reservations list / new-request form), but the final approve/reject
-        // call is left to the officer's judgement rather than auto-blocked here.
+        // Note: double-booking is flagged both to the member at request time
+        // and to the officer here via a "⚠ Overlap" badge on the list below,
+        // but the final approve/reject call is left to the officer's
+        // judgement rather than auto-blocked.
         update_reservation_status($pdo, $reservationId, $newStatus);
         header('Location: ' . base_url('officer/reservations.php?flash=updated' . ($statusFilter ? '&status=' . $statusFilter : '')));
         exit;
     }
 }
 
-$reservations = get_all_reservations($pdo, $statusFilter);
+$totalReservations = count_reservations($pdo, $statusFilter, $searchTerm);
+$pagination = build_pagination($totalReservations, get_current_page());
+$reservations = get_all_reservations($pdo, $statusFilter, $searchTerm, $pagination['per_page'], $pagination['offset']);
 $flash = $_GET['flash'] ?? null;
 $activeNav = 'machinery';
+$pageBaseUrl = base_url('officer/reservations.php' . ($statusFilter ? '?status=' . $statusFilter : ''));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -56,6 +62,8 @@ $activeNav = 'machinery';
       <a href="<?= base_url('officer/reservations.php?status=cancelled') ?>" class="<?= $statusFilter === 'cancelled' ? 'active' : '' ?>">Cancelled</a>
     </div>
 
+    <?php render_search_box($pageBaseUrl, $searchTerm, 'Search by machinery, requester, or purpose…', ['status' => $statusFilter]); ?>
+
     <div class="table-scroll">
     <table class="data-table">
       <thead>
@@ -70,10 +78,19 @@ $activeNav = 'machinery';
       </thead>
       <tbody>
         <?php if (empty($reservations)): ?>
-          <tr><td colspan="6" class="empty-row">No reservation requests found.</td></tr>
+          <tr><td colspan="6" class="empty-row">No reservation requests found<?= $searchTerm ? ' for "' . htmlspecialchars($searchTerm) . '"' : '' ?>.</td></tr>
         <?php else: foreach ($reservations as $r): ?>
+          <?php
+            $hasConflict = in_array($r['status'], ['pending', 'approved'], true)
+                && has_overlapping_reservation($pdo, (int) $r['machinery_id'], $r['start_date'], $r['end_date'], (int) $r['reservation_id']);
+          ?>
           <tr>
-            <td><?= htmlspecialchars($r['machinery_name']) ?></td>
+            <td>
+              <?= htmlspecialchars($r['machinery_name']) ?>
+              <?php if ($hasConflict): ?>
+                <span class="status-badge status-pending" title="Overlaps another pending/approved reservation for this machine">⚠ Overlap</span>
+              <?php endif; ?>
+            </td>
             <td><?= htmlspecialchars($r['requester_name']) ?></td>
             <td><?= htmlspecialchars($r['start_date']) ?> &rarr; <?= htmlspecialchars($r['end_date']) ?></td>
             <td><?= htmlspecialchars($r['purpose'] ?? '—') ?></td>
@@ -108,6 +125,8 @@ $activeNav = 'machinery';
       </tbody>
     </table>
     </div>
+
+    <?php render_pagination_controls($pagination, $pageBaseUrl . ($searchTerm ? (str_has($pageBaseUrl, '?') ? '&' : '?') . 'q=' . urlencode($searchTerm) : '')); ?>
   </main>
 </div>
 

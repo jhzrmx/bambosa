@@ -13,10 +13,55 @@
  * amount_due and kept in sync whenever a payment is recorded.
  */
 
-/** All billing periods, most recent first. */
-function get_billing_periods(PDO $pdo): array
+/**
+ * All billing periods, newest first, optionally filtered by a search term
+ * (matched against period name and notes), optionally paginated.
+ *
+ * $limit/$offset: optional pagination window (both required together, or
+ * omit both to get every matching row).
+ */
+function get_billing_periods(PDO $pdo, ?string $search = null, ?int $limit = null, ?int $offset = null): array
 {
-    return $pdo->query('SELECT * FROM billing_periods ORDER BY start_date DESC')->fetchAll();
+    $sql = 'SELECT * FROM billing_periods WHERE 1=1';
+    $params = [];
+
+    if ($search) {
+        $sql .= ' AND (period_name LIKE :search OR notes LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
+
+    $sql .= ' ORDER BY start_date DESC';
+
+    if ($limit !== null && $offset !== null) {
+        $sql .= ' LIMIT :limit OFFSET :offset';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value, PDO::PARAM_STR);
+    }
+    if ($limit !== null && $offset !== null) {
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+    return $stmt->fetchAll();
+}
+
+/** Count of billing periods matching an optional search filter (for pagination totals). */
+function count_billing_periods(PDO $pdo, ?string $search = null): int
+{
+    $sql = 'SELECT COUNT(*) AS cnt FROM billing_periods WHERE 1=1';
+    $params = [];
+
+    if ($search) {
+        $sql .= ' AND (period_name LIKE :search OR notes LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return (int) $stmt->fetch()['cnt'];
 }
 
 function get_billing_period(PDO $pdo, int $periodId): ?array
@@ -150,8 +195,15 @@ function recalculate_all_bill_statuses_for_period(PDO $pdo, int $periodId): void
     )->execute(['period_id' => $periodId]);
 }
 
-/** All bills for a period, joined with member name, lot name, sector. */
-function get_bills_for_period(PDO $pdo, int $periodId, ?string $status = null): array
+/**
+ * Bills for a given billing period, optionally filtered by status and/or a
+ * search term (matched against member name and lot name), optionally
+ * paginated.
+ *
+ * $limit/$offset: optional pagination window (both required together, or
+ * omit both to get every matching row).
+ */
+function get_bills_for_period(PDO $pdo, int $periodId, ?string $status = null, ?string $search = null, ?int $limit = null, ?int $offset = null): array
 {
     $sql = "SELECT b.*, u.full_name AS owner_name, fl.lot_name, s.sector_name
             FROM isf_bills b
@@ -160,15 +212,62 @@ function get_bills_for_period(PDO $pdo, int $periodId, ?string $status = null): 
             LEFT JOIN sectors s ON s.sector_id = fl.sector_id
             WHERE b.period_id = :period_id";
     $params = ['period_id' => $periodId];
+
     if ($status) {
         $sql .= ' AND b.status = :status';
         $params['status'] = $status;
     }
+
+    if ($search) {
+        $sql .= ' AND (u.full_name LIKE :search OR fl.lot_name LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
+
     $sql .= ' ORDER BY u.full_name, fl.lot_name';
+
+    if ($limit !== null && $offset !== null) {
+        $sql .= ' LIMIT :limit OFFSET :offset';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $key => $value) {
+        if ($key === 'period_id') {
+            $stmt->bindValue($key, $value, PDO::PARAM_INT);
+        } else {
+            $stmt->bindValue($key, $value, PDO::PARAM_STR);
+        }
+    }
+    if ($limit !== null && $offset !== null) {
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+    return $stmt->fetchAll();
+}
+
+/** Count of bills in a period matching an optional status/search filter (for pagination totals). */
+function count_bills_for_period(PDO $pdo, int $periodId, ?string $status = null, ?string $search = null): int
+{
+    $sql = "SELECT COUNT(*) AS cnt
+            FROM isf_bills b
+            JOIN users u ON u.user_id = b.user_id
+            JOIN farm_lots fl ON fl.lot_id = b.lot_id
+            WHERE b.period_id = :period_id";
+    $params = ['period_id' => $periodId];
+
+    if ($status) {
+        $sql .= ' AND b.status = :status';
+        $params['status'] = $status;
+    }
+
+    if ($search) {
+        $sql .= ' AND (u.full_name LIKE :search OR fl.lot_name LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    return $stmt->fetchAll();
+    return (int) $stmt->fetch()['cnt'];
 }
 
 /** All bills for one member across all periods, newest period first. */

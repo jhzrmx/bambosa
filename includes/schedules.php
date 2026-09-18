@@ -4,17 +4,73 @@
  * Requires $pdo from config/database.php to already be loaded.
  */
 
-/** All schedules, joined with sector name, soonest first. Optionally only upcoming ones. */
-function get_all_schedules(PDO $pdo, bool $upcomingOnly = false): array
+/**
+ * All schedules, joined with sector name, soonest first. Optionally only
+ * upcoming ones, and/or a search term (matched against sector name and
+ * notes), optionally paginated.
+ *
+ * $limit/$offset: optional pagination window (both required together, or
+ * omit both to get every matching row).
+ */
+function get_all_schedules(PDO $pdo, bool $upcomingOnly = false, ?string $search = null, ?int $limit = null, ?int $offset = null): array
 {
     $sql = 'SELECT rs.*, s.sector_name
             FROM rotation_schedules rs
-            JOIN sectors s ON s.sector_id = rs.sector_id';
+            JOIN sectors s ON s.sector_id = rs.sector_id
+            WHERE 1=1';
+    $params = [];
+
     if ($upcomingOnly) {
-        $sql .= ' WHERE rs.end_time >= NOW()';
+        $sql .= ' AND rs.end_time >= NOW()';
     }
+
+    if ($search) {
+        $sql .= ' AND (s.sector_name LIKE :search OR rs.notes LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
+
     $sql .= ' ORDER BY rs.start_time ASC';
-    return $pdo->query($sql)->fetchAll();
+
+    if ($limit !== null && $offset !== null) {
+        $sql .= ' LIMIT :limit OFFSET :offset';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value, PDO::PARAM_STR);
+    }
+    if ($limit !== null && $offset !== null) {
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+    return $stmt->fetchAll();
+}
+
+/** Count of schedules matching an optional upcoming/search filter (for pagination totals). */
+function count_schedules(PDO $pdo, bool $upcomingOnly = false, ?string $search = null): int
+{
+    $sql = 'SELECT COUNT(*) AS cnt
+            FROM rotation_schedules rs
+            JOIN sectors s ON s.sector_id = rs.sector_id
+            WHERE 1=1';
+    $params = [];
+
+    if ($upcomingOnly) {
+        $sql .= ' AND rs.end_time >= NOW()';
+    }
+
+    if ($search) {
+        $sql .= ' AND (s.sector_name LIKE :search OR rs.notes LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value, PDO::PARAM_STR);
+    }
+    $stmt->execute();
+    return (int) $stmt->fetch()['cnt'];
 }
 
 /** Schedules for one specific sector (e.g. to show a member only their own sector's schedule). */
@@ -88,4 +144,35 @@ function delete_schedule(PDO $pdo, int $id): void
 {
     $stmt = $pdo->prepare('DELETE FROM rotation_schedules WHERE schedule_id = :id');
     $stmt->execute(['id' => $id]);
+}
+
+/**
+ * Checks whether a sector already has a rotation schedule entry
+ * overlapping the given time window. Used to warn an officer at
+ * create/edit time — same "flag, don't block" philosophy as
+ * has_overlapping_reservation() in includes/machinery.php, since two
+ * overlapping release windows for the same sector may be intentional
+ * (e.g. a correction/extension) and the officer makes the final call.
+ */
+function has_overlapping_schedule(PDO $pdo, int $sectorId, string $startTime, string $endTime, ?int $excludeScheduleId = null): bool
+{
+    $sql = 'SELECT COUNT(*) AS cnt
+            FROM rotation_schedules
+            WHERE sector_id = :sector_id
+              AND start_time <= :end_time
+              AND end_time >= :start_time';
+    $params = [
+        'sector_id'  => $sectorId,
+        'start_time' => $startTime,
+        'end_time'   => $endTime,
+    ];
+
+    if ($excludeScheduleId) {
+        $sql .= ' AND schedule_id != :exclude_id';
+        $params['exclude_id'] = $excludeScheduleId;
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return (int) $stmt->fetch()['cnt'] > 0;
 }

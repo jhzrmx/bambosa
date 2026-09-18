@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/members.php';
+require_once __DIR__ . '/../includes/pagination.php';
 
 require_role('officer');
 
@@ -48,9 +49,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
     exit;
 }
 
-$sectors = get_sectors_with_usage($pdo);
+$searchTerm = get_search_term();
+$totalSectors = count_sectors($pdo, $searchTerm);
+$pagination = build_pagination($totalSectors, get_current_page());
+$sectors = get_sectors_with_usage($pdo, $searchTerm, $pagination['per_page'], $pagination['offset']);
 $flash = $_GET['flash'] ?? null;
 $activeNav = 'sectors';
+$pageBaseUrl = base_url('officer/sectors.php');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -86,6 +91,8 @@ $activeNav = 'sectors';
     <?php endif; ?>
 	
 	<?php if (!$isAddingOrEditing): ?>
+      <?php render_search_box($pageBaseUrl, $searchTerm, 'Search by sector name or description…'); ?>
+
       <div class="table-scroll">
       <table class="data-table">
         <thead>
@@ -99,7 +106,7 @@ $activeNav = 'sectors';
         </thead>
         <tbody>
           <?php if (empty($sectors)): ?>
-            <tr><td colspan="5" class="empty-row">No sectors created yet.</td></tr>
+            <tr><td colspan="5" class="empty-row">No sectors found<?= $searchTerm ? ' for "' . htmlspecialchars($searchTerm) . '"' : ' yet' ?>.</td></tr>
           <?php else: foreach ($sectors as $s): ?>
             <tr>
               <td><?= htmlspecialchars($s['sector_name']) ?></td>
@@ -126,6 +133,9 @@ $activeNav = 'sectors';
         </tbody>
       </table>
       </div>
+
+      <?php render_pagination_controls($pagination, $pageBaseUrl . ($searchTerm ? '?q=' . urlencode($searchTerm) : '')); ?>
+
 	  <a href="<?= base_url('officer/sectors.php?new=') ?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Add New Sector</button></a>
 	<?php endif; ?>
 	

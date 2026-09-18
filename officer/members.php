@@ -3,13 +3,17 @@ require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/members.php';
+require_once __DIR__ . '/../includes/pagination.php';
 
 require_role('officer');
 
 $statusFilter = $_GET['status'] ?? '';
 $statusFilter = in_array($statusFilter, ['active', 'inactive', 'pending'], true) ? $statusFilter : null;
+$searchTerm = get_search_term();
 
-$members = get_all_members($pdo, $statusFilter);
+$totalMembers = count_members($pdo, $statusFilter, $searchTerm);
+$pagination = build_pagination($totalMembers, get_current_page());
+$members = get_all_members($pdo, $statusFilter, $searchTerm, $pagination['per_page'], $pagination['offset']);
 
 // Attach total land area per member for quick reference in the table
 foreach ($members as &$m) {
@@ -19,6 +23,7 @@ unset($m);
 
 $flash = $_GET['flash'] ?? null;
 $activeNav = 'members';
+$pageBaseUrl = base_url('officer/members.php' . ($statusFilter ? '?status=' . $statusFilter : ''));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -52,6 +57,8 @@ $activeNav = 'members';
       <a href="<?= base_url('officer/members.php?status=inactive') ?>" class="<?= $statusFilter === 'inactive' ? 'active' : '' ?>">Inactive</a>
     </div>
 
+    <?php render_search_box($pageBaseUrl, $searchTerm, 'Search by name, email, or contact number…', ['status' => $statusFilter]); ?>
+
     <div class="table-scroll">
     <table class="data-table">
       <thead>
@@ -66,7 +73,7 @@ $activeNav = 'members';
       </thead>
       <tbody>
         <?php if (empty($members)): ?>
-          <tr><td colspan="6" class="empty-row">No members found for this filter.</td></tr>
+          <tr><td colspan="6" class="empty-row">No members found<?= $searchTerm ? ' for "' . htmlspecialchars($searchTerm) . '"' : ' for this filter' ?>.</td></tr>
         <?php else: foreach ($members as $m): ?>
           <tr>
             <td><?= htmlspecialchars($m['full_name']) ?></td>
@@ -105,6 +112,8 @@ $activeNav = 'members';
       </tbody>
     </table>
     </div>
+
+    <?php render_pagination_controls($pagination, $pageBaseUrl . ($searchTerm ? (str_has($pageBaseUrl, '?') ? '&' : '?') . 'q=' . urlencode($searchTerm) : '')); ?>
   </main>
 </div>
 

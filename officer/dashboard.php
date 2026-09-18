@@ -6,6 +6,7 @@ require_once __DIR__ . '/../includes/members.php';
 require_once __DIR__ . '/../includes/machinery.php';
 require_once __DIR__ . '/../includes/schedules.php';
 require_once __DIR__ . '/../includes/billing.php';
+require_once __DIR__ . '/../includes/calendar_events.php';
 
 require_role('officer'); // only officers may view this page
 
@@ -20,6 +21,10 @@ $totalOutstanding = (float) $pdo->query(
 )->fetch()['total'];
 
 $activeNav = 'dashboard';
+
+$calToday = (int) date('Y');
+$calMonthToday = (int) date('n');
+$calendarMonth = get_calendar_events_for_month($pdo, $calToday, $calMonthToday, null, null);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -64,9 +69,40 @@ $activeNav = 'dashboard';
         <div class="value"><?= $mappedLotCount ?></div>
       </a>
     </div>
+
+    <div class="dash-calendar" id="dashCalendar">
+      <div class="cal-main">
+        <div class="cal-toolbar">
+          <h2 data-cal-header></h2>
+          <div class="cal-nav">
+            <button type="button" class="cal-nav-btn" data-cal-prev aria-label="Previous month">&larr;</button>
+            <button type="button" class="cal-today-btn" data-cal-today>Today</button>
+            <button type="button" class="cal-nav-btn" data-cal-next aria-label="Next month">&rarr;</button>
+          </div>
+        </div>
+        <div class="cal-legend">
+          <span class="cal-legend-item"><span class="cal-dot cal-dot-schedule"></span> Water release (any sector)</span>
+          <span class="cal-legend-item"><span class="cal-dot cal-dot-reservation"></span> Machine reservation</span>
+        </div>
+        <div class="cal-grid" data-cal-grid></div>
+      </div>
+      <div class="cal-side" data-cal-detail>
+        <p class="muted-note">Click a day to see what's happening.</p>
+      </div>
+    </div>
   </main>
 </div>
 
 <script src="<?= base_url('assets/js/dashboard.js') ?>"></script>
+<script>
+  window.BAMBOSA_CALENDAR_INITIAL = {
+    year: <?= (int) $calToday ?>,
+    month: <?= (int) $calMonthToday ?>,
+    events_by_day: <?= json_encode($calendarMonth['events_by_day'], JSON_UNESCAPED_SLASHES) ?>,
+    data_url: <?= json_encode(base_url('calendar_data.php')) ?>,
+    today: { year: <?= (int) $calToday ?>, month: <?= (int) $calMonthToday ?>, day: <?= (int) date('j') ?> }
+  };
+</script>
+<script src="<?= base_url('assets/js/dashboard-calendar.js') ?>"></script>
 </body>
 </html>

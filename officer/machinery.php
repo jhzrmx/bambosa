@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/machinery.php';
+require_once __DIR__ . '/../includes/pagination.php';
 
 require_role('officer');
 
@@ -47,9 +48,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
     exit;
 }
 
-$machineryList = get_all_machinery($pdo);
+$searchTerm = get_search_term();
+$totalMachinery = count_machinery($pdo, false, $searchTerm);
+$pagination = build_pagination($totalMachinery, get_current_page());
+$machineryList = get_all_machinery($pdo, false, $searchTerm, $pagination['per_page'], $pagination['offset']);
 $flash = $_GET['flash'] ?? null;
 $activeNav = 'machinery';
+$pageBaseUrl = base_url('officer/machinery.php');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -81,6 +86,8 @@ $activeNav = 'machinery';
     <?php endif; ?>
 	
 	<?php if (!$isAddingOrEditing): ?>
+      <?php render_search_box($pageBaseUrl, $searchTerm, 'Search by name or description…'); ?>
+
       <div class="table-scroll">
       <table class="data-table">
         <thead>
@@ -93,7 +100,7 @@ $activeNav = 'machinery';
         </thead>
         <tbody>
           <?php if (empty($machineryList)): ?>
-            <tr><td colspan="4" class="empty-row">No machinery added yet.</td></tr>
+            <tr><td colspan="4" class="empty-row">No machinery found<?= $searchTerm ? ' for "' . htmlspecialchars($searchTerm) . '"' : ' yet' ?>.</td></tr>
           <?php else: foreach ($machineryList as $m): ?>
             <tr>
               <td><?= htmlspecialchars($m['name']) ?></td>
@@ -117,6 +124,9 @@ $activeNav = 'machinery';
         </tbody>
       </table>
       </div>
+
+      <?php render_pagination_controls($pagination, $pageBaseUrl . ($searchTerm ? '?q=' . urlencode($searchTerm) : '')); ?>
+
 	  <a href="<?= base_url('officer/machinery.php?new=') ?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Add New Machinery</button></a>
 	<?php endif; ?>
 	

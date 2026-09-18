@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/billing.php';
+require_once __DIR__ . '/../includes/pagination.php';
 
 require_role('officer');
 
@@ -58,12 +59,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'recor
 
 $statusFilter = $_GET['status'] ?? '';
 $statusFilter = in_array($statusFilter, ['unpaid', 'partial', 'paid'], true) ? $statusFilter : null;
+$searchTerm = get_search_term();
 
-$bills = get_bills_for_period($pdo, $periodId, $statusFilter);
+$totalBills = count_bills_for_period($pdo, $periodId, $statusFilter, $searchTerm);
+$pagination = build_pagination($totalBills, get_current_page());
+$bills = get_bills_for_period($pdo, $periodId, $statusFilter, $searchTerm, $pagination['per_page'], $pagination['offset']);
 $summary = get_period_summary($pdo, $periodId);
 $flash = $_GET['flash'] ?? null;
 $generatedCount = (int) ($_GET['count'] ?? 0);
 $activeNav = 'billing';
+$pageBaseUrl = base_url('officer/billing_period_view.php?id=' . $periodId . ($statusFilter ? '&status=' . $statusFilter : ''));
 
 // If a bill_id is present, we're opening the "record payment" mini-form for that bill inline.
 $recordingBillId = isset($_GET['pay']) ? (int) $_GET['pay'] : null;
@@ -123,6 +128,8 @@ $recordingBillId = isset($_GET['pay']) ? (int) $_GET['pay'] : null;
       <a href="<?= base_url('officer/billing_period_view.php?id=' . $periodId . '&status=paid') ?>" class="<?= $statusFilter === 'paid' ? 'active' : '' ?>">Paid</a>
     </div>
 
+    <?php render_search_box(base_url('officer/billing_period_view.php?id=' . $periodId), $searchTerm, 'Search by member or lot name…', ['status' => $statusFilter]); ?>
+
     <div class="table-scroll">
     <table class="data-table">
       <thead>
@@ -139,7 +146,13 @@ $recordingBillId = isset($_GET['pay']) ? (int) $_GET['pay'] : null;
       </thead>
       <tbody>
         <?php if (empty($bills)): ?>
-          <tr><td colspan="8" class="empty-row">No bills yet. Click "Generate / Refresh Bills" above to create them.</td></tr>
+          <tr><td colspan="8" class="empty-row">
+            <?php if ($searchTerm): ?>
+              No bills found for "<?= htmlspecialchars($searchTerm) ?>".
+            <?php else: ?>
+              No bills yet. Click "Generate / Refresh Bills" above to create them.
+            <?php endif; ?>
+          </td></tr>
         <?php else: foreach ($bills as $b): ?>
           <tr>
             <td><?= htmlspecialchars($b['owner_name']) ?></td>
@@ -198,6 +211,8 @@ $recordingBillId = isset($_GET['pay']) ? (int) $_GET['pay'] : null;
       </tbody>
     </table>
     </div>
+
+    <?php render_pagination_controls($pagination, $pageBaseUrl . ($searchTerm ? '&q=' . urlencode($searchTerm) : '')); ?>
   </main>
 </div>
 

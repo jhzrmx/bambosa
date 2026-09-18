@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/billing.php';
+require_once __DIR__ . '/../includes/pagination.php';
 
 require_role('officer');
 
@@ -85,9 +86,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
     exit;
 }
 
-$periods = get_billing_periods($pdo);
+$searchTerm = get_search_term();
+$totalPeriods = count_billing_periods($pdo, $searchTerm);
+$pagination = build_pagination($totalPeriods, get_current_page());
+$periods = get_billing_periods($pdo, $searchTerm, $pagination['per_page'], $pagination['offset']);
 $flash = $_GET['flash'] ?? null;
 $activeNav = 'billing';
+$pageBaseUrl = base_url('officer/billing_periods.php');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -125,6 +130,8 @@ $activeNav = 'billing';
     <?php endif; ?>
 	
 	<?php if (!$isAddingOrEditing): ?>
+      <?php render_search_box($pageBaseUrl, $searchTerm, 'Search by period name or notes…'); ?>
+
       <div class="table-scroll">
       <table class="data-table">
         <thead>
@@ -138,7 +145,7 @@ $activeNav = 'billing';
         </thead>
         <tbody>
           <?php if (empty($periods)): ?>
-            <tr><td colspan="5" class="empty-row">No billing periods yet.</td></tr>
+            <tr><td colspan="5" class="empty-row">No billing periods found<?= $searchTerm ? ' for "' . htmlspecialchars($searchTerm) . '"' : ' yet' ?>.</td></tr>
           <?php else: foreach ($periods as $p): ?>
             <tr>
               <td><a href="<?= base_url('officer/billing_period_view.php?id=' . (int) $p['period_id']) ?>"><?= htmlspecialchars($p['period_name']) ?></a></td>
@@ -177,6 +184,9 @@ $activeNav = 'billing';
         </tbody>
       </table>
       </div>
+
+      <?php render_pagination_controls($pagination, $pageBaseUrl . ($searchTerm ? '?q=' . urlencode($searchTerm) : '')); ?>
+
 	  <a href="<?= base_url('officer/billing_periods.php?new=') ?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Open New Billing Period</button></a>
 	<?php endif; ?>
 	

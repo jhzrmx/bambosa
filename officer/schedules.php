@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/members.php';
 require_once __DIR__ . '/../includes/schedules.php';
+require_once __DIR__ . '/../includes/pagination.php';
 
 require_role('officer');
 
@@ -36,12 +37,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
     }
 
     if (empty($errors)) {
+        $hasConflict = has_overlapping_schedule($pdo, $sectorId, $startTime, $endTime, $id > 0 ? $id : null);
+
         if ($id > 0) {
             update_schedule($pdo, $id, $sectorId, $startTime, $endTime, $notes);
         } else {
             create_schedule($pdo, $sectorId, $startTime, $endTime, $notes, (int) $_SESSION['user_id']);
         }
-        header('Location: ' . base_url('officer/schedules.php?flash=saved'));
+        header('Location: ' . base_url('officer/schedules.php?flash=' . ($hasConflict ? 'saved_conflict' : 'saved')));
         exit;
     }
 }
@@ -55,9 +58,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
 }
 
 $sectors = get_sectors($pdo);
-$schedules = get_all_schedules($pdo);
+$searchTerm = get_search_term();
+$totalSchedules = count_schedules($pdo, false, $searchTerm);
+$pagination = build_pagination($totalSchedules, get_current_page());
+$schedules = get_all_schedules($pdo, false, $searchTerm, $pagination['per_page'], $pagination['offset']);
 $flash = $_GET['flash'] ?? null;
 $activeNav = 'schedules';
+$pageBaseUrl = base_url('officer/schedules.php');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -78,6 +85,8 @@ $activeNav = 'schedules';
 
     <?php if ($flash === 'saved'): ?>
       <div class="alert alert-success">Schedule saved.</div>
+    <?php elseif ($flash === 'saved_conflict'): ?>
+      <div class="alert alert-error">Schedule saved — heads up: this sector already has another schedule entry that overlaps this time window. Double-check both entries are intentional.</div>
     <?php elseif ($flash === 'deleted'): ?>
       <div class="alert alert-success">Schedule removed.</div>
     <?php endif; ?>
@@ -89,6 +98,8 @@ $activeNav = 'schedules';
     <?php endif; ?>
 	
 	<?php if (!$isAddingOrEditing): ?>
+      <?php render_search_box($pageBaseUrl, $searchTerm, 'Search by sector or notes…'); ?>
+
       <div class="table-scroll">
       <table class="data-table">
         <thead>
@@ -102,10 +113,16 @@ $activeNav = 'schedules';
         </thead>
         <tbody>
           <?php if (empty($schedules)): ?>
-            <tr><td colspan="5" class="empty-row">No rotation schedules posted yet.</td></tr>
+            <tr><td colspan="5" class="empty-row">No rotation schedules found<?= $searchTerm ? ' for "' . htmlspecialchars($searchTerm) . '"' : ' yet' ?>.</td></tr>
           <?php else: foreach ($schedules as $s): ?>
+            <?php $hasConflict = has_overlapping_schedule($pdo, (int) $s['sector_id'], $s['start_time'], $s['end_time'], (int) $s['schedule_id']); ?>
             <tr>
-              <td><?= htmlspecialchars($s['sector_name']) ?></td>
+              <td>
+                <?= htmlspecialchars($s['sector_name']) ?>
+                <?php if ($hasConflict): ?>
+                  <span class="status-badge status-pending" title="Overlaps another schedule entry in this sector">⚠ Overlap</span>
+                <?php endif; ?>
+              </td>
               <td><?= htmlspecialchars(date('M j, Y g:i A', strtotime($s['start_time']))) ?></td>
               <td><?= htmlspecialchars(date('M j, Y g:i A', strtotime($s['end_time']))) ?></td>
               <td><?= htmlspecialchars($s['notes'] ?? '—') ?></td>
@@ -123,6 +140,9 @@ $activeNav = 'schedules';
         </tbody>
       </table>
       </div>
+
+      <?php render_pagination_controls($pagination, $pageBaseUrl . ($searchTerm ? '?q=' . urlencode($searchTerm) : '')); ?>
+
 	  <a href="<?= base_url('officer/schedules.php?new=') ?>"><button type="button" class="btn-full" style="max-width:220px; margin-top:24px;">Add New Schedule</button></a>
 	<?php endif; ?>
 	

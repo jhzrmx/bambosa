@@ -17,6 +17,8 @@ bambosa/
 ├── login.php                # Login form + auth logic
 ├── signup.php                # Signup form (registers as "member")
 ├── logout.php                # Destroys session, redirects to login
+├── calendar_data.php          # JSON endpoint the dashboard calendar fetches when navigating months
+│                                # (lives here, not in includes/, since includes/.htaccess blocks direct HTTP access)
 ├── config/
 │   ├── database.php          # PDO connection (edit credentials here)
 │   └── .htaccess              # Blocks direct browser access
@@ -29,6 +31,8 @@ bambosa/
 │   ├── machinery.php             # Machinery + reservation data access
 │   ├── schedules.php              # Rotation schedule data access
 │   ├── billing.php                 # ISF billing periods, bills, payments data access
+│   ├── pagination.php               # Shared search/pagination helpers for officer list pages
+│   ├── calendar_events.php           # Builds the dashboard calendar's merged schedule + reservation event list
 │   ├── partials/
 │   │   ├── officer_sidebar.php     # Shared officer nav (topbar + drawer + overlay)
 │   │   ├── member_sidebar.php       # Shared member nav (topbar + drawer + overlay)
@@ -60,18 +64,30 @@ bambosa/
 │   ├── css/style.css           # All styling, including responsive breakpoints + map styles
 │   └── js/
 │       ├── dashboard.js         # Mobile sidebar drawer toggle (vanilla JS, no deps)
+│       ├── dashboard-calendar.js # Dashboard calendar widget — month grid, day details, AJAX month nav (vanilla JS)
 │       ├── sector-boundaries.js  # Leaflet.draw polygon editor + live preview + save (vanilla JS)
 │       └── lot-location-picker.js # Click-to-pin map picker for the farm lot form (vanilla JS)
-└── sql/
-    ├── bambosa_db.sql         # Full schema (fresh install) + seed officer account
-    ├── migrations/
-    │   ├── 001_isf_billing.sql      # Adds billing_periods/isf_bills/isf_payments to an EXISTING db
-    │   ├── 002_sector_polygons.sql   # Adds sectors.boundary_geojson + sector_auto_assignments to an EXISTING db
-    │   └── .htaccess
-    └── .htaccess
+├── sql/
+│   ├── bambosa_db.sql         # Full schema (fresh install) + seed officer account
+│   ├── migrations/
+│   │   ├── 001_isf_billing.sql      # Adds billing_periods/isf_bills/isf_payments to an EXISTING db
+│   │   ├── 002_sector_polygons.sql   # Adds sectors.boundary_geojson + sector_auto_assignments to an EXISTING db
+│   │   └── .htaccess
+│   └── .htaccess
+└── serve.bat                  # Windows convenience script — runs `php -S localhost:8000`
+                                # from the project root; checks PHP is on PATH first
 ```
 
 ## Setup (XAMPP)
+
+**Requirements:** PHP 7.4 or newer, MySQL/MariaDB. The codebase
+intentionally avoids PHP 8-only syntax (`str_contains()`, `match`,
+constructor property promotion, union types, etc.) so it also runs on
+older PHP 7.4 stacks some school/hosting environments are still on. If a
+PHP 8+-only function would otherwise be the natural choice, a small
+`if (!function_exists(...))`-guarded 7.4-compatible helper is added next
+to where it's needed instead (e.g. `str_has()` in `includes/pagination.php`,
+a `strpos()`-based stand-in for `str_contains()`).
 
 **Fresh install (no existing database):**
 1. Copy the `bambosa/` folder into `htdocs/`.
@@ -82,6 +98,15 @@ bambosa/
 4. Edit `config/database.php` with your DB username/password (XAMPP
    default is usually `root` with empty password — already set).
 5. Visit `http://localhost/bambosa/`.
+
+**Quick local run without Apache (Windows):** double-click `serve.bat` in
+the project root. It checks that `php` is available on your `PATH` first
+(some bundled Apache+MySQL/MariaDB+PHP stacks, unlike XAMPP, don't add PHP
+to `PATH` automatically) and tells you what to do if it isn't found,
+otherwise it starts PHP's built-in server (`php -S localhost:8000`) so you
+can visit `http://localhost:8000/`. You still need MySQL/MariaDB running
+separately and `config/database.php` configured, since the built-in server
+only replaces Apache, not the database.
 
 **Existing install (database created before a given feature was added):**
 1. Pull the updated code into your `bambosa/` folder as normal.
@@ -152,6 +177,77 @@ or at the root — if a future page goes two folders deep, the base-path
 detection logic in `includes/base_path_utils.php` (the officer/member
 regex) would need a small update to strip an extra segment.
 
+## Search & pagination on management (CRUD) pages
+
+Every officer list page — Members, Sectors, Machinery, Reservations,
+Schedules, Billing Periods, and a Billing Period's Bills — now has a
+search box and pagination instead of dumping every row into one long
+table:
+
+- **Search** is a simple `?q=` GET parameter, matched server-side with
+  a case-insensitive `LIKE '%term%'` against the relevant text columns
+  for that list (e.g. member name/email/contact; machinery name/description;
+  reservation machinery/requester/purpose). It combines with any existing
+  status filter tab (e.g. searching while on the "Pending" members tab
+  searches only pending members).
+- **Pagination** shows 15 rows per page (`PAGINATION_PER_PAGE` in
+  `includes/pagination.php`), with a "Showing X–Y of Z" summary and
+  prev/next/page-number links. It's hidden automatically when everything
+  fits on one page.
+- Both are implemented in `includes/pagination.php`:
+  - `get_search_term()` / `get_current_page()` — read and sanitize the
+    `?q=` / `?page=` query params.
+  - `build_pagination()` — turns a total row count + current page into
+    the limit/offset/page-count metadata the view needs.
+  - `render_search_box()` / `render_pagination_controls()` — render the
+    actual search form and page-link markup, reused identically across
+    every list page.
+- Every data-access "get all X" function (`get_all_members()`,
+  `get_sectors_with_usage()`, `get_all_machinery()`,
+  `get_all_reservations()`, `get_all_schedules()`, `get_billing_periods()`,
+  `get_bills_for_period()`) now takes optional `$search`, `$limit`, and
+  `$offset` parameters, each paired with a `count_*()` function
+  (`count_members()`, `count_sectors()`, etc.) that runs the same
+  filters without `LIMIT`/`OFFSET` to get the total for the pagination
+  summary. Passing `null` for `$limit`/`$offset` returns every matching
+  row unpaginated, so anywhere else in the codebase that still calls
+  these functions without the new arguments keeps working unchanged
+  (e.g. `member/schedule.php` listing a member's own upcoming schedule).
+- **All of this goes through prepared statements** — search terms are
+  bound as `LIKE` parameters (never string-concatenated into the SQL),
+  and `LIMIT`/`OFFSET` values are bound explicitly as
+  `PDO::PARAM_INT`. The only dynamic SQL fragments (e.g. appending
+  `AND status = :status` only when a filter is active) are hardcoded
+  strings chosen by server-side logic, never built from raw user input,
+  so there's no SQL injection surface here or elsewhere in the app.
+- Search boxes are plain GET forms. Since a GET form's `action` URL
+  loses its own query string on submit (the browser only sends the
+  form's fields), anything that needs to survive a search — a status
+  filter, a billing period's `?id=`, etc. — is passed as a hidden
+  input via `render_search_box()`'s `$preserveParams` argument rather
+  than baked into the URL.
+
+## Sidebar icons
+
+`includes/partials/officer_sidebar.php` and `includes/partials/member_sidebar.php`
+render each nav link with an inline SVG icon (Material Design Icons paths,
+`fill="white"`, 24×24 viewBox) instead of emoji/text-only links, so the
+sidebar renders consistently across platforms and browsers. To add a new
+nav item, follow the existing pattern: an `<svg>` with an `<path>` d`
+attribute, followed by a `<span>` with the label text, both inside the
+`<a>` tag.
+
+## Direct directory access (`/member/`, `/officer/`)
+
+Both `member/index.php` and `officer/index.php` now exist so that a user
+who browses to the bare directory URL (e.g. `http://localhost/bambosa/member/`)
+is routed somewhere sensible instead of hitting a server-generated
+directory listing or a blank/404 response (depending on server config).
+Each just `require_once`s that folder's `dashboard.php`, which in turn
+enforces `require_login()` / `require_role()` as normal — so an
+unauthenticated visit still correctly redirects to `login.php`, and a
+wrong-role visit still redirects to that user's own dashboard.
+
 ## Default officer account
 
 The seed SQL inserts an officer row with a **12345678** password hash.
@@ -178,6 +274,54 @@ Run that command snippet once then replace the output of
   (or later, via an admin approval screen) before they can log in.
   Officer accounts are **not** self-registrable — provision them directly
   in the database for security.
+
+## Dashboard calendar
+
+Both dashboards (`member/dashboard.php` and `officer/dashboard.php`) show
+a month calendar below the stat cards, so an officer or member can see
+what's coming up — rotation schedules and machinery reservations — at a
+glance instead of clicking into each management page separately.
+
+- **What shows up:** water release windows (`rotation_schedules`) and
+  pending/approved machinery reservations (`machinery_reservations`),
+  merged into one list per day. Rejected/cancelled reservations are left
+  out since they aren't actually happening.
+- **Scoped per role:** members only see schedules for their own farm
+  lot's sector(s) and their own reservations; officers see every sector's
+  schedule and every member's reservations, matching what each role can
+  already see elsewhere in the app.
+- **Layout:** a two-column card — a bigger month grid on the left, a
+  detail panel on the right showing whatever day is selected — deliberately
+  sized larger than the stat cards above it (`.dash-calendar` in
+  `assets/css/style.css`) since it's meant to be the dashboard's visual
+  centerpiece rather than another small tile. On narrow screens the detail
+  panel drops below the grid instead of squeezing side-by-side.
+- **Multi-day events**: a reservation or schedule window spanning several
+  days shows a dot on every day it touches, not just its start day
+  (`expand_event_across_days()` in `includes/calendar_events.php`).
+- **How it loads:** the current month's events are queried server-side
+  and embedded directly in the page (`window.BAMBOSA_CALENDAR_INITIAL` in
+  the dashboard's inline `<script>`), so the calendar has content
+  immediately on page load. Clicking the prev/next month arrows then
+  fetches that month's events as JSON from `calendar_data.php`
+  via `fetch()`, so browsing other months doesn't reload the whole page.
+  All the grid rendering, month navigation, and day-click handling is
+  plain vanilla JS in `assets/js/dashboard-calendar.js` — no calendar
+  library, consistent with the rest of the stack.
+- `calendar_data.php` only requires the person be logged in (either
+  role); it doesn't use `require_role()` like most pages since both roles
+  hit the same endpoint, but scopes every query to the session's own
+  `user_id`/role internally so a member can never pull another member's
+  reservations or an officer-only view through it.
+- **Why this file lives at the project root, not in `includes/`:**
+  `includes/.htaccess` has `Require all denied`, which blocks *all*
+  direct HTTP access to that folder outright — it's meant only for
+  library files loaded via `require_once`, never fetched directly by the
+  browser. An AJAX endpoint the browser calls with `fetch()` needs to be
+  somewhere actually reachable, so `calendar_data.php` sits next to
+  `index.php`/`login.php` at the project root instead, and only
+  `require_once`s what it needs from `includes/` and `config/` (the same
+  pattern every other root-level page already uses).
 
 ## Responsive UI / mobile sidebar
 
@@ -244,10 +388,14 @@ only need to be maintained in one place per role.
   (`member/machinery.php`).
 - `has_overlapping_reservation()` in `includes/machinery.php` does a simple
   date-range overlap check and shows the *member* a warning at request time.
+  `officer/reservations.php` re-runs the same check per row and shows a
+  "⚠ Overlap" badge next to any pending/approved reservation that overlaps
+  another pending/approved reservation for the same machine, so the officer
+  sees it too, right where they approve/reject — not just at request time.
   It does **not** block submission or auto-block officer approval — the
-  officer always makes the final call. This is the "easy" version; a stricter
-  conflict-prevention engine can be layered on later if the officer wants
-  double-booking hard-blocked instead of just flagged.
+  officer always makes the final call. This is the "flag, don't block"
+  version; a stricter conflict-prevention engine that hard-blocks
+  double-booking could be layered on later if ever needed.
 
 ## Rotation Scheduling — basic viewer (implemented — simplified version)
 
@@ -258,9 +406,15 @@ only need to be maintained in one place per role.
   sector(s), plus a full reference list of all sectors' upcoming releases
   (`member/schedule.php`).
 - This is the straightforward CRUD + listing version described in the
-  capstone's Epic 4. It does **not** yet include automatic conflict
-  detection between overlapping sector windows — schedules are officer
-  judgment calls for now, same as machinery approval above.
+  capstone's Epic 4, extended with the same lightweight conflict-flagging
+  approach used for machinery reservations: `has_overlapping_schedule()` in
+  `includes/schedules.php` checks whether a sector already has another
+  schedule entry overlapping a given time window. `officer/schedules.php`
+  shows a "⚠ Overlap" badge on any row that overlaps another entry in the
+  same sector, and shows a warning banner after saving one that does.
+  As with machinery, this is informational only — schedules are still an
+  officer judgment call, since an intentional correction or extension can
+  legitimately overlap an existing window.
 
 ## Sector Management (implemented)
 
@@ -417,8 +571,8 @@ already been converted to cash.
 
 - [x] Member & Farm Management module (Epic 2)
 - [x] Sector Management — full CRUD with usage counts before delete
-- [x] Machinery Reservation System (simplified — no auto conflict-blocking)
-- [x] Digital Rotation Scheduling — basic CRUD + sector-filtered viewer (simplified — no conflict detection)
+- [x] Machinery Reservation System (simplified — overlap flagged to member and officer, not auto-blocked)
+- [x] Digital Rotation Scheduling — basic CRUD + sector-filtered viewer (simplified — overlap flagged, not auto-blocked)
 - [x] Responsive UI — mobile slide-in sidebar drawer, scrollable tables, responsive forms/nav
 - [x] Farm Map view — Leaflet-based web equivalent of the paper's QGIS mapping
 - [x] Sector Boundaries & Auto-Assignment — draw sector polygons, point-in-polygon farm lot matching, with confirm-before-overwrite and overlap warnings
@@ -428,7 +582,6 @@ All four specific objectives from Chapter 1 are now implemented, along
 with sector management, boundary-based auto-assignment, and the
 responsive UI work that came up along the way. Possible follow-ups beyond
 the original scope, if useful later:
-- Conflict detection for overlapping machinery reservations / rotation schedules (currently officer judgment calls)
+- [x] Conflict detection for overlapping machinery reservations / rotation schedules — both list pages now show a "⚠ Overlap" badge next to any entry that overlaps another pending/approved reservation (same machine) or another schedule (same sector); saving a conflicting schedule also shows a warning. This is flag-only, not a hard block, since the officer still makes the final call — same philosophy as the original member-side reservation warning.
 - Printable/PDF bill or receipt generation
 - Importing a real QGIS-exported boundary dataset (GeoJSON/shapefile) to replace or refine the manually-drawn polygons
-- Online payment integration (explicitly out of scope per the paper's own delimitations)

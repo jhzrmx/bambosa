@@ -14,16 +14,54 @@ function get_sectors(PDO $pdo): array
  * Get all sectors along with a count of farm lots and rotation schedules
  * currently assigned to each — used on the sector management page so
  * officers can see at a glance what depends on a sector before deleting it.
+ *
+ * $search: optional case-insensitive match against sector name/description.
+ * $limit/$offset: optional pagination window (both required together, or
+ * omit both to get every matching row).
  */
-function get_sectors_with_usage(PDO $pdo): array
+function get_sectors_with_usage(PDO $pdo, ?string $search = null, ?int $limit = null, ?int $offset = null): array
 {
-    return $pdo->query(
-        "SELECT s.*,
+    $sql = "SELECT s.*,
                 (SELECT COUNT(*) FROM farm_lots fl WHERE fl.sector_id = s.sector_id) AS lot_count,
                 (SELECT COUNT(*) FROM rotation_schedules rs WHERE rs.sector_id = s.sector_id) AS schedule_count
-         FROM sectors s
-         ORDER BY s.sector_name"
-    )->fetchAll();
+            FROM sectors s";
+    $params = [];
+
+    if ($search) {
+        $sql .= ' WHERE s.sector_name LIKE :search OR s.description LIKE :search';
+        $params['search'] = '%' . $search . '%';
+    }
+
+    $sql .= ' ORDER BY s.sector_name';
+
+    if ($limit !== null && $offset !== null) {
+        $sql .= ' LIMIT :limit OFFSET :offset';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value, PDO::PARAM_STR);
+    }
+    if ($limit !== null && $offset !== null) {
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+    return $stmt->fetchAll();
+}
+
+/** Count of sectors matching an optional search term (for pagination totals). */
+function count_sectors(PDO $pdo, ?string $search = null): int
+{
+    $sql = 'SELECT COUNT(*) AS cnt FROM sectors';
+    $params = [];
+    if ($search) {
+        $sql .= ' WHERE sector_name LIKE :search OR description LIKE :search';
+        $params['search'] = '%' . $search . '%';
+    }
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return (int) $stmt->fetch()['cnt'];
 }
 
 /** Get a single sector by ID. */
@@ -81,20 +119,67 @@ function sector_name_exists(PDO $pdo, string $name, ?int $excludeId = null): boo
     return (int) $stmt->fetch()['cnt'] > 0;
 }
 
-/** Get all members (role=member), optionally including a status filter. */
-function get_all_members(PDO $pdo, ?string $status = null): array
+/**
+ * Get all members (role=member), optionally filtered by status and/or a
+ * search term (matched against name, email, contact number), optionally
+ * paginated.
+ *
+ * $search: optional case-insensitive match against name/email/contact.
+ * $limit/$offset: optional pagination window (both required together, or
+ * omit both to get every matching row).
+ */
+function get_all_members(PDO $pdo, ?string $status = null, ?string $search = null, ?int $limit = null, ?int $offset = null): array
 {
+    $sql = "SELECT * FROM users WHERE role = 'member'";
+    $params = [];
+
     if ($status) {
-        $stmt = $pdo->prepare(
-            "SELECT * FROM users WHERE role = 'member' AND status = :status ORDER BY full_name"
-        );
-        $stmt->execute(['status' => $status]);
-        return $stmt->fetchAll();
+        $sql .= ' AND status = :status';
+        $params['status'] = $status;
     }
 
-    return $pdo->query(
-        "SELECT * FROM users WHERE role = 'member' ORDER BY full_name"
-    )->fetchAll();
+    if ($search) {
+        $sql .= ' AND (full_name LIKE :search OR email LIKE :search OR contact_number LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
+
+    $sql .= ' ORDER BY full_name';
+
+    if ($limit !== null && $offset !== null) {
+        $sql .= ' LIMIT :limit OFFSET :offset';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value, PDO::PARAM_STR);
+    }
+    if ($limit !== null && $offset !== null) {
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+    return $stmt->fetchAll();
+}
+
+/** Count of members matching an optional status/search filter (for pagination totals). */
+function count_members(PDO $pdo, ?string $status = null, ?string $search = null): int
+{
+    $sql = "SELECT COUNT(*) AS cnt FROM users WHERE role = 'member'";
+    $params = [];
+
+    if ($status) {
+        $sql .= ' AND status = :status';
+        $params['status'] = $status;
+    }
+
+    if ($search) {
+        $sql .= ' AND (full_name LIKE :search OR email LIKE :search OR contact_number LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return (int) $stmt->fetch()['cnt'];
 }
 
 /** Get a single user by ID (any role). */
