@@ -9,8 +9,34 @@ require_role('member');
 $userId = (int) $_SESSION['user_id'];
 $errors = [];
 $saved = false;
+$passwordErrors = [];
+$passwordSaved = false;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'password') {
+    if (!csrf_verify($_POST['csrf_token'] ?? null)) {
+        $passwordErrors[] = 'Invalid form submission. Please try again.';
+    }
+
+    $currentPassword = $_POST['current_password'] ?? '';
+    $newPassword     = $_POST['new_password'] ?? '';
+    $confirmPassword = $_POST['confirm_password'] ?? '';
+
+    if ($currentPassword === '' || $newPassword === '' || $confirmPassword === '') {
+        $passwordErrors[] = 'Please fill in all three password fields.';
+    } elseif (strlen($newPassword) < 8) {
+        $passwordErrors[] = 'New password must be at least 8 characters.';
+    } elseif ($newPassword !== $confirmPassword) {
+        $passwordErrors[] = 'New password and confirmation do not match.';
+    }
+
+    if (empty($passwordErrors)) {
+        if (change_user_password($pdo, $userId, $currentPassword, $newPassword)) {
+            $passwordSaved = true;
+        } else {
+            $passwordErrors[] = 'Current password is incorrect.';
+        }
+    }
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_verify($_POST['csrf_token'] ?? null)) {
         $errors[] = 'Invalid form submission. Please try again.';
     }
@@ -83,6 +109,43 @@ $activeNav = 'profile';
       </div>
 
       <button type="submit" class="btn-full" style="max-width:220px;">Save Changes</button>
+    </form>
+
+    <h2 class="section-heading">Change Password</h2>
+
+    <?php if ($passwordSaved): ?>
+      <div class="alert alert-success">Password updated successfully.</div>
+    <?php endif; ?>
+
+    <?php if (!empty($passwordErrors)): ?>
+      <div class="alert alert-error">
+        <?php foreach ($passwordErrors as $err): ?><div><?= htmlspecialchars($err) ?></div><?php endforeach; ?>
+      </div>
+    <?php endif; ?>
+
+    <form method="POST" action="<?= base_url('member/profile.php') ?>" class="inline-card-form">
+      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+      <input type="hidden" name="form" value="password">
+
+      <div class="form-group">
+        <label for="current_password">Current Password</label>
+        <input type="password" id="current_password" name="current_password" required autocomplete="current-password">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="new_password">New Password</label>
+          <input type="password" id="new_password" name="new_password" required minlength="8" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label for="confirm_password">Confirm New Password</label>
+          <input type="password" id="confirm_password" name="confirm_password" required minlength="8" autocomplete="new-password">
+        </div>
+      </div>
+
+      <p class="muted-note">Must be at least 8 characters.</p>
+
+      <button type="submit" class="btn-full" style="max-width:220px;">Update Password</button>
     </form>
 
     <h2 class="section-heading">My Farm Lots</h2>

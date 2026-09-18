@@ -293,6 +293,33 @@ function update_user_profile(PDO $pdo, int $userId, string $fullName, ?string $c
     ]);
 }
 
+/**
+ * Changes a user's own password after verifying their current one.
+ *
+ * Used by both member/profile.php and officer/profile.php — any logged-in
+ * user can change their own password this way (there's no "reset someone
+ * else's password" officer action; that's a separate, bigger feature).
+ *
+ * Returns true and updates the hash if $currentPassword matches what's on
+ * file; returns false (no change made) if it doesn't, so the caller can
+ * show "current password is incorrect" without a extra lookup.
+ */
+function change_user_password(PDO $pdo, int $userId, string $currentPassword, string $newPassword): bool
+{
+    $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE user_id = :id');
+    $stmt->execute(['id' => $userId]);
+    $row = $stmt->fetch();
+
+    if (!$row || !password_verify($currentPassword, $row['password_hash'])) {
+        return false;
+    }
+
+    $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
+    $update = $pdo->prepare('UPDATE users SET password_hash = :hash WHERE user_id = :id');
+    $update->execute(['hash' => $newHash, 'id' => $userId]);
+    return true;
+}
+
 /** Officer action: change a member's account status (approve, deactivate, reactivate). */
 function update_user_status(PDO $pdo, int $userId, string $status): void
 {

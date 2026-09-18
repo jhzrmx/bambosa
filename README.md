@@ -40,6 +40,7 @@ bambosa/
 │   └── .htaccess
 ├── officer/
 │   ├── dashboard.php           # Protected — role must be 'officer'
+│   ├── profile.php              # Edit own name/contact/password
 │   ├── members.php              # List/filter members, approve/deactivate
 │   ├── member_view.php           # View one member + manage their farm lots (CRUD, with auto-assign option)
 │   ├── update_status.php          # POST handler for approve/deactivate/reactivate
@@ -55,7 +56,7 @@ bambosa/
 │   └── map.php                              # All members' farm lots + sector boundaries on a Leaflet map
 ├── member/
 │   ├── dashboard.php           # Protected — role must be 'member'
-│   ├── profile.php              # Edit own name/contact; view (read-only) farm lots
+│   ├── profile.php              # Edit own name/contact/password; view (read-only) farm lots
 │   ├── billing.php               # View own ISF bills + payment history across all periods
 │   ├── machinery.php              # Request a reservation; view own reservation history
 │   ├── schedule.php                # View upcoming water rotation for own sector + all sectors
@@ -351,6 +352,41 @@ only need to be maintained in one place per role.
   `officer/*.php` or `member/*.php` file — set `$activeNav`, open
   `<div class="dash-shell">`, `include` the relevant sidebar partial,
   add `<main class="dash-main">`, and include `dashboard.js` before `</body>`.
+
+## Account self-service (profile & password) — both roles
+
+Every logged-in user — officer or member — can update their own name,
+contact number, and password without needing another officer to do it
+for them:
+
+- **Members**: `member/profile.php` — account info (name, contact) plus
+  password change, above the read-only farm-lot table already described
+  in Epic 2 above.
+- **Officers**: `officer/profile.php` — same account info + password
+  change form, linked from a new "My Profile" item in the officer
+  sidebar (there previously wasn't one; officers had no self-service
+  page at all).
+- **Email is intentionally read-only** on both pages — changing it would
+  need a re-verification flow (confirm the new address is really theirs)
+  that's out of scope for now, so it's shown disabled with a note instead
+  of silently allowed.
+- **Password changes** require the current password to be entered and
+  verified (`change_user_password()` in `includes/members.php`) before a
+  new one is accepted — this stops a hijacked/unattended logged-in
+  session from being used to lock the real owner out by changing their
+  password. Both roles share the same function, since there's nothing
+  role-specific about changing your own password. The new password must
+  be at least 8 characters (same rule signup.php already enforces) and
+  must be entered twice to catch typos.
+- Both forms are on the same page but distinguished by a hidden
+  `form=password` field, so the two `<form>`s can post to the same
+  endpoint (`member/profile.php` / `officer/profile.php`) without
+  interfering with each other, and each shows its own success/error
+  state independently.
+- **What's still officer-only:** role, status (active/inactive/pending),
+  and farm lot data are unchanged — those still require another officer
+  to edit, exactly as before, since self-editing status or land area
+  would be a billing/security integrity risk (see Epic 2 above for why).
 
 ## Epic 2: Member & Farm Management (implemented)
 

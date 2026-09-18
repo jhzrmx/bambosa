@@ -2,7 +2,7 @@
 /**
  * Officer sidebar partial.
  * Expects $activeNav to be set by the including page to one of:
- * 'dashboard', 'members', 'sectors', 'boundaries', 'billing', 'schedules', 'machinery', 'map'
+ * 'dashboard', 'profile', 'members', 'sectors', 'boundaries', 'billing', 'schedules', 'machinery', 'map'
  * Renders: mobile topbar + overlay + the sidebar drawer itself.
  * The including page must open <div class="dash-shell"> before including
  * this, and close it (plus <main class="dash-main">) after.
@@ -30,6 +30,12 @@ $activeNav = $activeNav ?? '';
 	  <path d="M19,5V7H15V5H19M9,5V11H5V5H9M19,13V19H15V13H19M9,17V19H5V17H9M21,3H13V9H21V3M11,3H3V13H11V3M21,11H13V21H21V11M11,15H3V21H11V15Z" />
 	</svg>
 	<span>Dashboard</span>
+  </a>
+  <a href="<?= base_url('officer/profile.php') ?>" class="<?= $activeNav === 'profile' ? 'active' : '' ?>">
+	<svg version="1.1" id="mdi-account-outline" fill="white" width="24" height="24" viewBox="0 0 24 24">
+	  <path d="M12,4A4,4 0 0,1 16,8A4,4 0 0,1 12,12A4,4 0 0,1 8,8A4,4 0 0,1 12,4M12,6A2,2 0 0,0 10,8A2,2 0 0,0 12,10A2,2 0 0,0 14,8A2,2 0 0,0 12,6M12,13C14.67,13 20,14.33 20,17V20H4V17C4,14.33 9.33,13 12,13M12,14.9C9.03,14.9 5.9,16.36 5.9,17V18.1H18.1V17C18.1,16.36 14.97,14.9 12,14.9Z" />
+	</svg>
+	<span>My Profile</span>
   </a>
   <a href="<?= base_url('officer/members.php') ?>" class="<?= $activeNav === 'members' ? 'active' : '' ?>">
 	<svg version="1.1" id="mdi-account-multiple-outline" fill="white" width="24" height="24" viewBox="0 0 24 24">
