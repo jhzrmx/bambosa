@@ -381,6 +381,20 @@ footer.site-footer {
   flex-shrink: 0;
 }
 
+@media (min-width: 881px) {
+  /* Keep the sidebar fixed in the viewport while the main content scrolls,
+     instead of scrolling away with the rest of the page on long pages like
+     the dashboard or management list pages. Only applies on desktop —
+     on mobile the sidebar is a slide-in drawer (position: fixed) instead,
+     handled separately below. */
+  .dash-sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+}
+
 .dash-sidebar h2 {
   font-size: 1.05rem;
   margin-bottom: 0.2rem;
