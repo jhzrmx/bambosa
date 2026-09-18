@@ -25,8 +25,9 @@ function get_all_schedules(PDO $pdo, bool $upcomingOnly = false, ?string $search
     }
 
     if ($search) {
-        $sql .= ' AND (s.sector_name LIKE :search OR rs.notes LIKE :search)';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' AND (s.sector_name LIKE :search1 OR rs.notes LIKE :search2)';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
     }
 
     $sql .= ' ORDER BY rs.start_time ASC';
@@ -61,8 +62,9 @@ function count_schedules(PDO $pdo, bool $upcomingOnly = false, ?string $search =
     }
 
     if ($search) {
-        $sql .= ' AND (s.sector_name LIKE :search OR rs.notes LIKE :search)';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' AND (s.sector_name LIKE :search1 OR rs.notes LIKE :search2)';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
     }
 
     $stmt = $pdo->prepare($sql);

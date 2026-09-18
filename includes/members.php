@@ -28,8 +28,9 @@ function get_sectors_with_usage(PDO $pdo, ?string $search = null, ?int $limit = 
     $params = [];
 
     if ($search) {
-        $sql .= ' WHERE s.sector_name LIKE :search OR s.description LIKE :search';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' WHERE s.sector_name LIKE :search1 OR s.description LIKE :search2';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
     }
 
     $sql .= ' ORDER BY s.sector_name';
@@ -56,8 +57,9 @@ function count_sectors(PDO $pdo, ?string $search = null): int
     $sql = 'SELECT COUNT(*) AS cnt FROM sectors';
     $params = [];
     if ($search) {
-        $sql .= ' WHERE sector_name LIKE :search OR description LIKE :search';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' WHERE sector_name LIKE :search1 OR description LIKE :search2';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
     }
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -139,8 +141,10 @@ function get_all_members(PDO $pdo, ?string $status = null, ?string $search = nul
     }
 
     if ($search) {
-        $sql .= ' AND (full_name LIKE :search OR email LIKE :search OR contact_number LIKE :search)';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' AND (full_name LIKE :search1 OR email LIKE :search2 OR contact_number LIKE :search3)';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
+        $params['search3'] = '%' . $search . '%';
     }
 
     $sql .= ' ORDER BY full_name';
@@ -173,8 +177,10 @@ function count_members(PDO $pdo, ?string $status = null, ?string $search = null)
     }
 
     if ($search) {
-        $sql .= ' AND (full_name LIKE :search OR email LIKE :search OR contact_number LIKE :search)';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' AND (full_name LIKE :search1 OR email LIKE :search2 OR contact_number LIKE :search3)';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
+        $params['search3'] = '%' . $search . '%';
     }
 
     $stmt = $pdo->prepare($sql);

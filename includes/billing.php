@@ -26,8 +26,9 @@ function get_billing_periods(PDO $pdo, ?string $search = null, ?int $limit = nul
     $params = [];
 
     if ($search) {
-        $sql .= ' AND (period_name LIKE :search OR notes LIKE :search)';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' AND (period_name LIKE :search1 OR notes LIKE :search2)';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
     }
 
     $sql .= ' ORDER BY start_date DESC';
@@ -55,8 +56,9 @@ function count_billing_periods(PDO $pdo, ?string $search = null): int
     $params = [];
 
     if ($search) {
-        $sql .= ' AND (period_name LIKE :search OR notes LIKE :search)';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' AND (period_name LIKE :search1 OR notes LIKE :search2)';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
     }
 
     $stmt = $pdo->prepare($sql);
@@ -219,8 +221,9 @@ function get_bills_for_period(PDO $pdo, int $periodId, ?string $status = null, ?
     }
 
     if ($search) {
-        $sql .= ' AND (u.full_name LIKE :search OR fl.lot_name LIKE :search)';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' AND (u.full_name LIKE :search1 OR fl.lot_name LIKE :search2)';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
     }
 
     $sql .= ' ORDER BY u.full_name, fl.lot_name';
@@ -261,12 +264,20 @@ function count_bills_for_period(PDO $pdo, int $periodId, ?string $status = null,
     }
 
     if ($search) {
-        $sql .= ' AND (u.full_name LIKE :search OR fl.lot_name LIKE :search)';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' AND (u.full_name LIKE :search1 OR fl.lot_name LIKE :search2)';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
     }
 
     $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
+    foreach ($params as $key => $value) {
+        if ($key === 'period_id') {
+            $stmt->bindValue($key, $value, PDO::PARAM_INT);
+        } else {
+            $stmt->bindValue($key, $value, PDO::PARAM_STR);
+        }
+    }
+    $stmt->execute();
     return (int) $stmt->fetch()['cnt'];
 }
 

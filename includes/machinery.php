@@ -21,8 +21,9 @@ function get_all_machinery(PDO $pdo, bool $onlyAvailable = false, ?string $searc
     }
 
     if ($search) {
-        $sql .= ' AND (name LIKE :search OR description LIKE :search)';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' AND (name LIKE :search1 OR description LIKE :search2)';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
     }
 
     $sql .= ' ORDER BY name';
@@ -54,8 +55,9 @@ function count_machinery(PDO $pdo, bool $onlyAvailable = false, ?string $search 
     }
 
     if ($search) {
-        $sql .= ' AND (name LIKE :search OR description LIKE :search)';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' AND (name LIKE :search1 OR description LIKE :search2)';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
     }
 
     $stmt = $pdo->prepare($sql);
@@ -122,8 +124,10 @@ function get_all_reservations(PDO $pdo, ?string $status = null, ?string $search 
     }
 
     if ($search) {
-        $sql .= ' AND (m.name LIKE :search OR u.full_name LIKE :search OR r.purpose LIKE :search)';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' AND (m.name LIKE :search1 OR u.full_name LIKE :search2 OR r.purpose LIKE :search3)';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
+        $params['search3'] = '%' . $search . '%';
     }
 
     $sql .= ' ORDER BY r.start_date DESC, r.created_at DESC';
@@ -160,8 +164,10 @@ function count_reservations(PDO $pdo, ?string $status = null, ?string $search = 
     }
 
     if ($search) {
-        $sql .= ' AND (m.name LIKE :search OR u.full_name LIKE :search OR r.purpose LIKE :search)';
-        $params['search'] = '%' . $search . '%';
+        $sql .= ' AND (m.name LIKE :search1 OR u.full_name LIKE :search2 OR r.purpose LIKE :search3)';
+        $params['search1'] = '%' . $search . '%';
+        $params['search2'] = '%' . $search . '%';
+        $params['search3'] = '%' . $search . '%';
     }
 
     $stmt = $pdo->prepare($sql);
