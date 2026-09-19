@@ -110,6 +110,81 @@ function get_schedule_by_id(PDO $pdo, int $id): ?array
     return $row ?: null;
 }
 
+/**
+ * Sector IDs of every OTHER schedule row sharing the same group_id as the
+ * given schedule (i.e. sibling entries created together via "also create
+ * this schedule for other sectors"). Returns an empty array if the
+ * schedule has no group_id (it was created standalone) or is the only
+ * member of its group. Used to pre-check the right sectors when editing a
+ * schedule that's part of a multi-sector batch.
+ */
+function get_sibling_schedule_sector_ids(PDO $pdo, int $scheduleId): array
+{
+    $schedule = get_schedule_by_id($pdo, $scheduleId);
+    if (!$schedule || $schedule['group_id'] === null) {
+        return [];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT sector_id FROM rotation_schedules WHERE group_id = :group_id AND schedule_id != :id'
+    );
+    $stmt->execute(['group_id' => $schedule['group_id'], 'id' => $scheduleId]);
+    return array_map('intval', array_column($stmt->fetchAll(), 'sector_id'));
+}
+
+/**
+ * Creates one schedule row per sector in $sectorIds, all sharing the same
+ * start/end/notes and a common group_id — this is what powers "also
+ * create this same schedule for other sectors" on the create form.
+ *
+ * $sectorIds must have at least one sector. When there's only one, this
+ * behaves the same as a plain create_schedule() call except it still sets
+ * a group_id — which is harmless (a "group" of one just means editing it
+ * later finds no siblings, same as a schedule that was never grouped).
+ *
+ * Returns the list of newly-created schedule_ids, in the same order as
+ * $sectorIds.
+ */
+function create_schedule_group(PDO $pdo, array $sectorIds, string $startTime, string $endTime, ?string $notes, ?int $createdBy): array
+{
+    $sectorIds = array_values(array_unique(array_map('intval', $sectorIds)));
+    if (empty($sectorIds)) {
+        throw new InvalidArgumentException('At least one sector is required.');
+    }
+
+    // A single shared tag for this batch. MAX(group_id)+1 is simple and
+    // sufficient here — group_id has no uniqueness constraint of its own
+    // and only needs to be distinct enough to tell batches apart, not
+    // globally unique like a UUID would be.
+    $groupId = (int) $pdo->query('SELECT COALESCE(MAX(group_id), 0) + 1 AS next_id FROM rotation_schedules')->fetch()['next_id'];
+
+    $ids = [];
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO rotation_schedules (sector_id, start_time, end_time, notes, group_id, created_by)
+             VALUES (:sector_id, :start_time, :end_time, :notes, :group_id, :created_by)'
+        );
+        foreach ($sectorIds as $sectorId) {
+            $stmt->execute([
+                'sector_id'  => $sectorId,
+                'start_time' => $startTime,
+                'end_time'   => $endTime,
+                'notes'      => $notes ?: null,
+                'group_id'   => $groupId,
+                'created_by' => $createdBy,
+            ]);
+            $ids[] = (int) $pdo->lastInsertId();
+        }
+        $pdo->commit();
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
+    return $ids;
+}
+
 function create_schedule(PDO $pdo, int $sectorId, string $startTime, string $endTime, ?string $notes, ?int $createdBy): int
 {
     $stmt = $pdo->prepare(
@@ -140,6 +215,125 @@ function update_schedule(PDO $pdo, int $id, int $sectorId, string $startTime, st
         'notes'      => $notes ?: null,
         'id'         => $id,
     ]);
+}
+
+/**
+ * Updates a schedule AND keeps its sector group in sync with
+ * $wantedSectorIds (the full set of sectors that should share this
+ * schedule after saving — including the "primary" one shown in the form).
+ *
+ * How the group is reconciled:
+ * - Sectors already in the group that are still wanted: their row's
+ *   start/end/notes are updated in place (schedule_id stays the same).
+ * - Sectors newly added to $wantedSectorIds: a new row is created for
+ *   each, joining the same group_id.
+ * - Sectors that were in the group but are no longer in
+ *   $wantedSectorIds: their row is UNGROUPED, not deleted — its group_id
+ *   is cleared back to NULL and the row is otherwise left exactly as it
+ *   was (last-synced start/end/notes). Unchecking a sector means "this
+ *   schedule is no longer shared with that sector," not "delete that
+ *   sector's schedule outright" — the officer can still edit or delete it
+ *   directly afterwards, as a normal standalone entry, if that's what
+ *   they actually meant to do.
+ * - If $wantedSectorIds ends up being just the one original sector (no
+ *   group), the schedule's group_id is cleared back to NULL so it goes
+ *   back to being a standalone entry.
+ *
+ * $primarySectorId is which sector's row is $id itself (needed so we
+ * know which existing row to treat as "the one already open in the
+ * form" versus siblings).
+ */
+function update_schedule_group(PDO $pdo, int $id, int $primarySectorId, array $wantedSectorIds, string $startTime, string $endTime, ?string $notes, ?int $updatedBy): void
+{
+    $wantedSectorIds = array_values(array_unique(array_map('intval', $wantedSectorIds)));
+    if (!in_array($primarySectorId, $wantedSectorIds, true)) {
+        $wantedSectorIds[] = $primarySectorId;
+    }
+
+    $schedule = get_schedule_by_id($pdo, $id);
+    if (!$schedule) {
+        throw new InvalidArgumentException('Schedule not found.');
+    }
+
+    // Every row currently sharing this schedule's group (or just itself,
+    // if it has no group yet) — this is the "before" picture we're
+    // reconciling against $wantedSectorIds.
+    $existingRows = $schedule['group_id'] !== null
+        ? (function () use ($pdo, $schedule) {
+            $stmt = $pdo->prepare('SELECT schedule_id, sector_id FROM rotation_schedules WHERE group_id = :gid');
+            $stmt->execute(['gid' => $schedule['group_id']]);
+            return $stmt->fetchAll();
+        })()
+        : [['schedule_id' => $id, 'sector_id' => $primarySectorId]];
+
+    $existingBySector = [];
+    foreach ($existingRows as $row) {
+        $existingBySector[(int) $row['sector_id']] = (int) $row['schedule_id'];
+    }
+
+    $pdo->beginTransaction();
+    try {
+        // Decide the group_id every surviving/new row should share.
+        if (count($wantedSectorIds) <= 1) {
+            $groupId = null; // back to a standalone schedule
+        } elseif ($schedule['group_id'] !== null) {
+            $groupId = (int) $schedule['group_id']; // keep the existing tag
+        } else {
+            $groupId = (int) $pdo->query('SELECT COALESCE(MAX(group_id), 0) + 1 AS next_id FROM rotation_schedules')->fetch()['next_id'];
+        }
+
+        // Update or create a row for every wanted sector.
+        $updateStmt = $pdo->prepare(
+            'UPDATE rotation_schedules
+             SET start_time = :start_time, end_time = :end_time, notes = :notes, group_id = :group_id
+             WHERE schedule_id = :id'
+        );
+        $insertStmt = $pdo->prepare(
+            'INSERT INTO rotation_schedules (sector_id, start_time, end_time, notes, group_id, created_by)
+             VALUES (:sector_id, :start_time, :end_time, :notes, :group_id, :created_by)'
+        );
+
+        foreach ($wantedSectorIds as $sectorId) {
+            $params = [
+                'start_time' => $startTime,
+                'end_time'   => $endTime,
+                'notes'      => $notes ?: null,
+                'group_id'   => $groupId,
+            ];
+            if (isset($existingBySector[$sectorId])) {
+                $updateStmt->execute($params + ['id' => $existingBySector[$sectorId]]);
+            } else {
+                $insertStmt->execute([
+                    'sector_id'  => $sectorId,
+                    'start_time' => $startTime,
+                    'end_time'   => $endTime,
+                    'notes'      => $notes ?: null,
+                    'group_id'   => $groupId,
+                    'created_by' => $updatedBy,
+                ]);
+            }
+        }
+
+        // Ungroup (not delete) rows for sectors that were in the group but
+        // are no longer wanted — unchecking a sector means "this schedule
+        // is no longer shared with that sector," not "delete that sector's
+        // schedule entirely." The row is left exactly as it last was
+        // (whatever start/end/notes it had before this edit) and simply
+        // goes back to being a standalone entry, same as any schedule that
+        // was never part of a group. The officer can still edit or delete
+        // it directly afterwards if that's what they actually wanted.
+        $ungroupStmt = $pdo->prepare('UPDATE rotation_schedules SET group_id = NULL WHERE schedule_id = :id');
+        foreach ($existingBySector as $sectorId => $scheduleId) {
+            if (!in_array($sectorId, $wantedSectorIds, true)) {
+                $ungroupStmt->execute(['id' => $scheduleId]);
+            }
+        }
+
+        $pdo->commit();
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
 }
 
 function delete_schedule(PDO $pdo, int $id): void

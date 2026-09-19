@@ -56,6 +56,15 @@ CREATE TABLE IF NOT EXISTS farm_lots (
     land_area_ha DECIMAL(6,2) NOT NULL,
     latitude     DECIMAL(10,7) DEFAULT NULL,
     longitude    DECIMAL(10,7) DEFAULT NULL,
+    -- Polygon vertices as a JSON array of [lat, lng] pairs, drawn by an
+    -- officer on the map — same format as sectors.boundary_geojson below.
+    -- NULL means the lot only has a single point (latitude/longitude above),
+    -- not a drawn shape. When a polygon IS saved, latitude/longitude are
+    -- recomputed as the polygon's centroid, so every existing feature that
+    -- only needs a single map pin (mapped-lot lists, point-in-polygon
+    -- sector auto-assignment, the member's read-only map) keeps working
+    -- unchanged without needing to know about polygons at all.
+    boundary_geojson JSON DEFAULT NULL,
     notes        VARCHAR(255) DEFAULT NULL,
     created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -104,6 +113,13 @@ CREATE TABLE IF NOT EXISTS rotation_schedules (
     start_time   DATETIME NOT NULL,
     end_time     DATETIME NOT NULL,
     notes        VARCHAR(255) DEFAULT NULL,
+    -- Ties together multiple rows created as "the same schedule, applied to
+    -- several sectors at once" (see officer/schedules.php's "create the
+    -- same schedule for other sectors too" option). NULL means this
+    -- schedule entry stands alone, not part of a multi-sector batch.
+    -- Not a foreign key since it doesn't reference another table — it's
+    -- just a shared tag across sibling rows in this same table.
+    group_id     INT DEFAULT NULL,
     created_by   INT DEFAULT NULL,          -- officer user_id who posted it
     created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (sector_id) REFERENCES sectors(sector_id) ON DELETE CASCADE,
@@ -160,6 +176,7 @@ CREATE TABLE IF NOT EXISTS isf_payments (
 CREATE INDEX idx_isf_bills_user ON isf_bills(user_id);
 CREATE INDEX idx_isf_bills_period ON isf_bills(period_id);
 CREATE INDEX idx_isf_bills_status ON isf_bills(status);
+CREATE INDEX idx_rotation_schedules_group_id ON rotation_schedules(group_id);
 
 -- Auto-assignment audit log: records each time a farm lot's sector was set
 -- automatically because its coordinates fell inside a drawn sector polygon

@@ -3,23 +3,56 @@ require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/members.php';
+require_once __DIR__ . '/../includes/farm_lot_boundaries.php';
 
 require_role('member');
 
 $userId = (int) $_SESSION['user_id'];
-$mappedLots = get_mapped_farm_lots_by_user($pdo, $userId);
 $allLots = get_farm_lots_by_user($pdo, $userId);
+$lotBoundaries = get_farm_lots_with_boundaries($pdo, $userId);
+$boundaryByLotId = [];
+foreach ($lotBoundaries as $lb) {
+    if (count($lb['boundary']) >= 3) {
+        $boundaryByLotId[(int) $lb['lot_id']] = $lb['boundary'];
+    }
+}
+
+// A lot is "mapped" if it has a location at all — a drawn polygon, or (for
+// any older/unusual record that somehow has a point but no polygon) just
+// the coordinate point on its own.
+$mappedLots = array_filter($allLots, fn($lot) => $lot['latitude'] !== null && $lot['longitude'] !== null);
 $unmappedCount = count($allLots) - count($mappedLots);
 
-$mapPoints = array_map(function ($lot) {
-    return [
-        'lat'     => (float) $lot['latitude'],
-        'lng'     => (float) $lot['longitude'],
-        'lotName' => $lot['lot_name'],
-        'sector'  => $lot['sector_name'] ?? 'Unassigned',
-        'area'    => (float) $lot['land_area_ha'],
-    ];
-}, $mappedLots);
+// Polygons to draw: every mapped lot that has one.
+$boundaryPolygons = [];
+foreach ($mappedLots as $lot) {
+    $lotId = (int) $lot['lot_id'];
+    if (isset($boundaryByLotId[$lotId])) {
+        $boundaryPolygons[] = [
+            'lotName'  => $lot['lot_name'],
+            'sector'   => $lot['sector_name'] ?? 'Unassigned',
+            'area'     => (float) $lot['land_area_ha'],
+            'boundary' => $boundaryByLotId[$lotId],
+        ];
+    }
+}
+
+// Point markers: only for mapped lots that do NOT have a polygon — once a
+// lot has a drawn boundary, the boundary is shown instead of a redundant
+// point marker at its centroid.
+$mapPoints = [];
+foreach ($mappedLots as $lot) {
+    $lotId = (int) $lot['lot_id'];
+    if (!isset($boundaryByLotId[$lotId])) {
+        $mapPoints[] = [
+            'lat'     => (float) $lot['latitude'],
+            'lng'     => (float) $lot['longitude'],
+            'lotName' => $lot['lot_name'],
+            'sector'  => $lot['sector_name'] ?? 'Unassigned',
+            'area'    => (float) $lot['land_area_ha'],
+        ];
+    }
+}
 
 $activeNav = 'map';
 ?>
@@ -39,18 +72,18 @@ $activeNav = 'map';
 
   <main class="dash-main">
     <h1>My Farm Map</h1>
-    <p>A map of your registered farm lot location(s). Contact an officer if a location needs to be added or corrected.</p>
+    <p>A map of your registered farm lot(s), drawn as their actual shape where an officer has mapped one. Contact an officer if a boundary needs to be added or corrected.</p>
 
     <?php if (empty($allLots)): ?>
       <p class="muted-note">You don't have any farm lots registered yet. Contact an officer to have one added.</p>
     <?php elseif (empty($mappedLots)): ?>
-      <p class="muted-note">Your farm lot(s) don't have coordinates recorded yet. Contact an officer to have your location added to the map.</p>
+      <p class="muted-note">Your farm lot(s) don't have a boundary drawn yet. Contact an officer to have your lot's shape added to the map.</p>
     <?php else: ?>
 
       <?php if ($unmappedCount > 0): ?>
         <div class="alert alert-error">
           <?= $unmappedCount ?> of your farm lot<?= $unmappedCount === 1 ? '' : 's' ?> 
-          <?= $unmappedCount === 1 ? 'has' : 'have' ?> no coordinates yet and can't be shown below.
+          <?= $unmappedCount === 1 ? 'has' : 'have' ?> no boundary drawn yet and can't be shown below.
         </div>
       <?php endif; ?>
 
@@ -69,12 +102,34 @@ $activeNav = 'map';
 <script>
 (function () {
   var points = <?= json_encode($mapPoints, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+  var boundaries = <?= json_encode($boundaryPolygons, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
   var map = L.map('farmMap');
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }).addTo(map);
+
+  var fitTargets = [];
+
+  boundaries.forEach(function (b) {
+    if (!b.boundary || b.boundary.length < 3) return;
+    var poly = L.polygon(b.boundary, {
+      color: '#1f7a4d',
+      weight: 2,
+      opacity: 0.7,
+      fillOpacity: 0.15
+    });
+    var boundaryPopupHtml =
+      '<div class="map-popup">' +
+        '<strong>' + escapeHtml(b.lotName) + '</strong><br>' +
+        'Sector: ' + escapeHtml(b.sector) + '<br>' +
+        'Area: ' + b.area.toFixed(2) + ' ha' +
+      '</div>';
+    poly.bindPopup(boundaryPopupHtml);
+    poly.addTo(map);
+    b.boundary.forEach(function (pt) { fitTargets.push(pt); });
+  });
 
   var markers = [];
   points.forEach(function (p) {
@@ -86,15 +141,16 @@ $activeNav = 'map';
       fillOpacity: 0.85
     }).addTo(map);
 
-    var popupHtml =
+    var pointPopupHtml =
       '<div class="map-popup">' +
         '<strong>' + escapeHtml(p.lotName) + '</strong><br>' +
         'Sector: ' + escapeHtml(p.sector) + '<br>' +
         'Area: ' + p.area.toFixed(2) + ' ha' +
       '</div>';
 
-    marker.bindPopup(popupHtml);
+    marker.bindPopup(pointPopupHtml);
     markers.push(marker);
+    fitTargets.push([p.lat, p.lng]);
   });
 
   function escapeHtml(str) {
@@ -103,11 +159,10 @@ $activeNav = 'map';
     return div.innerHTML;
   }
 
-  if (markers.length === 1) {
-    map.setView([points[0].lat, points[0].lng], 15);
-  } else {
-    var group = L.featureGroup(markers);
-    map.fitBounds(group.getBounds().pad(0.15));
+  if (fitTargets.length === 1) {
+    map.setView(fitTargets[0], 15);
+  } else if (fitTargets.length > 1) {
+    map.fitBounds(L.latLngBounds(fitTargets).pad(0.15));
   }
 })();
 </script>

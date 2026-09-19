@@ -28,6 +28,7 @@ bambosa/
 │   ├── auth.php                 # require_login(), require_role(), CSRF helpers (uses base_path_utils.php for redirects)
 │   ├── members.php              # Member, farm-lot, sector & map data access
 │   ├── sector_boundaries.php     # Polygon storage, point-in-polygon test, auto-assignment logic
+│   ├── farm_lot_boundaries.php    # Farm lot polygon storage + centroid computation
 │   ├── machinery.php             # Machinery + reservation data access
 │   ├── schedules.php              # Rotation schedule data access
 │   ├── billing.php                 # ISF billing periods, bills, payments data access
@@ -67,12 +68,14 @@ bambosa/
 │       ├── dashboard.js         # Mobile sidebar drawer toggle (vanilla JS, no deps)
 │       ├── dashboard-calendar.js # Dashboard calendar widget — month grid, day details, AJAX month nav (vanilla JS)
 │       ├── sector-boundaries.js  # Leaflet.draw polygon editor + live preview + save (vanilla JS)
-│       └── lot-location-picker.js # Click-to-pin map picker for the farm lot form (vanilla JS)
+│       └── farm-lot-boundary.js   # Leaflet.draw editor for a single farm lot's boundary (vanilla JS)
 ├── sql/
 │   ├── bambosa_db.sql         # Full schema (fresh install) + seed officer account
 │   ├── migrations/
 │   │   ├── 001_isf_billing.sql      # Adds billing_periods/isf_bills/isf_payments to an EXISTING db
 │   │   ├── 002_sector_polygons.sql   # Adds sectors.boundary_geojson + sector_auto_assignments to an EXISTING db
+│   │   ├── 003_farm_lot_polygons.sql  # Adds farm_lots.boundary_geojson to an EXISTING db
+│   │   ├── 004_schedule_groups.sql     # Adds rotation_schedules.group_id to an EXISTING db
 │   │   └── .htaccess
 │   └── .htaccess
 └── serve.bat                  # Windows convenience script — runs `php -S localhost:8000`
@@ -117,8 +120,12 @@ only replaces Apache, not the database.
      `isf_bills`, `isf_payments`.
    - `sql/migrations/002_sector_polygons.sql` — adds `boundary_geojson` to
      `sectors` and creates `sector_auto_assignments`.
+   - `sql/migrations/003_farm_lot_polygons.sql` — adds `boundary_geojson`
+     to `farm_lots`.
+   - `sql/migrations/004_schedule_groups.sql` — adds `group_id` to
+     `rotation_schedules`.
 3. None of this touches data you already have in `users`, `farm_lots`,
-   `sectors`, etc. Both migrations are safe to re-run if you're ever unsure
+   `sectors`, etc. All migrations are safe to re-run if you're ever unsure
    whether one was already applied (`CREATE TABLE IF NOT EXISTS` throughout,
    plus a column-existence / idempotency check before altering tables or
    adding indexes).
@@ -391,8 +398,9 @@ for them:
 ## Epic 2: Member & Farm Management (implemented)
 
 - `farm_lots` table stores one or more land parcels per member: name/label,
-  sector, land area (ha), latitude/longitude (for the future QGIS map view),
-  and notes.
+  sector, land area (ha), a drawn boundary polygon (`boundary_geojson`),
+  and notes. `latitude`/`longitude` are also stored, but only as a value
+  derived from the polygon — see "Farm Lot Polygons" below.
 - **Officers** can: view all members with status filters (all/pending/active/inactive),
   approve pending signups, deactivate/reactivate accounts, and add/edit/delete
   farm lots for any member (`officer/member_view.php`).
@@ -401,17 +409,11 @@ for them:
   Land area and sector are officer-managed only, since they directly drive
   ISF billing in Epic 3 — self-editing would create a billing integrity risk.
 - All data access goes through `includes/members.php` (prepared statements only).
-- **Location picking:** the farm lot form includes an interactive map
-  (`assets/js/lot-location-picker.js`, Leaflet-based) instead of requiring
-  an officer to type raw coordinates. Clicking the map drops a pin and
-  fills the latitude/longitude fields automatically; dragging an existing
-  pin updates them again. The text fields are still there and still
-  editable directly — typing into them moves the pin too, so the two stay
-  in sync — since coordinates copied from a GPS device or written down in
-  the field are still a legitimate way to enter a location. The map
-  centers on the lot's existing location when editing, or the average of
-  all other farm lots' locations when adding a new one (falling back to a
-  wide default view only if no farm lot anywhere has coordinates yet).
+- **Location is set by drawing a boundary, not by picking a point.** The
+  farm lot form has a single map (`assets/js/farm-lot-boundary.js`,
+  Leaflet.draw) for drawing the lot's actual shape as a polygon — see
+  "Farm Lot Polygons" below for the full writeup of how that works and why
+  there's no separate point-picker or coordinate fields anymore.
 
 ## Machinery Reservation System (implemented — simplified version)
 
@@ -452,6 +454,60 @@ for them:
   officer judgment call, since an intentional correction or extension can
   legitimately overlap an existing window.
 
+### Applying the same schedule to multiple sectors at once
+
+Client request: several sectors often need the exact same water-release
+window (same day, same start/end time), and re-typing it once per sector
+was tedious. `officer/schedules.php` now has an "Also create/apply this
+same schedule to other sectors" checkbox on the create/edit form:
+
+- **Unchecked (default):** behaves exactly as before — one sector, one
+  schedule entry.
+- **Checked:** reveals a scrollable list of every other sector as
+  checkboxes. Whichever ones are checked get their own schedule row
+  created with the identical start time, end time, and notes as the
+  primary sector chosen in the dropdown above. The sector currently
+  selected in that dropdown is automatically disabled in the checkbox
+  list (can't double-apply the schedule to the same sector twice); this
+  is enforced with JS for a responsive UI, and independently by
+  `array_unique()` server-side regardless of whether JS ran.
+- **Editing a schedule that's part of a group:** the checkbox comes
+  pre-checked, and the sectors it already shares this schedule with are
+  pre-checked in the list, matching what the client asked for. Editing the
+  time/notes and saving propagates the change to every checked sector's
+  row. Unchecking a sector that used to share the schedule **ungroups**
+  it — that sector's schedule entry stays exactly as it was, it just stops
+  being kept in sync with this one going forward. It does not get
+  deleted: the assumption is unchecking means "stop linking these," not
+  "get rid of that sector's schedule," so it becomes a normal standalone
+  entry the officer can still edit or delete directly afterwards if
+  removing it entirely really was the goal. Editing back down to a single
+  sector (or a schedule that was never grouped) behaves as a normal
+  single-sector edit.
+- **Data model:** rather than trying to infer "the same schedule" from
+  matching timestamps (fragile — two officers could coincidentally create
+  identical-looking but unrelated entries), a nullable
+  `rotation_schedules.group_id` column explicitly tags rows created/kept
+  together as one batch. `NULL` means a standalone entry, exactly like
+  every schedule created before this feature existed — nothing about
+  existing data changes. See `sql/migrations/004_schedule_groups.sql` for
+  an existing database, already included in `sql/bambosa_db.sql` for a
+  fresh install.
+- **Conflict checking** (the "⚠ Overlap" badge above) runs across every
+  sector the schedule will end up covering, not just the primary one, so
+  a conflict hiding in one of the "other sectors" isn't missed — and
+  correctly excludes each sector's own existing row when editing, so an
+  unchanged sibling doesn't flag as "conflicting with itself."
+- The schedules table shows a "Shared" badge next to any entry that's
+  part of a multi-sector group, so it's clear at a glance which schedules
+  aren't standalone.
+- New functions in `includes/schedules.php`: `create_schedule_group()`
+  (used on create when 2+ sectors are involved),
+  `update_schedule_group()` (reconciles an edit against whichever sectors
+  end up checked — updates existing rows, inserts new ones, ungroups
+  (never deletes) unchecked ones), and `get_sibling_schedule_sector_ids()`
+  (what pre-checks the list when editing).
+
 ## Sector Management (implemented)
 
 - `officer/sectors.php` — full CRUD for the `sectors` table: create, edit,
@@ -479,18 +535,26 @@ using **Leaflet.js** (open-source, no API key) with **OpenStreetMap** tiles,
 both loaded from a CDN.
 
 - `officer/map.php` — plots every farm lot that has coordinates, color-coded
-  by sector, with a legend. Tapping a marker shows the lot name, owner,
-  sector, and hectares, plus a link straight to that member's record. If
-  any farm lots are missing coordinates, a banner tells the officer how
-  many, so incomplete data entry is visible rather than silently skipped.
-- `member/map.php` — the same idea scoped to just the logged-in member's
-  own farm lot(s), consistent with the read-only pattern already used on
-  `member/profile.php`.
-- No new database tables were needed — this reads directly from
-  `farm_lots.latitude` / `farm_lots.longitude`, which were already being
-  captured by the farm-lot form in Epic 2. New data-access functions
-  (`get_mapped_farm_lots()`, `count_unmapped_farm_lots()`,
-  `get_mapped_farm_lots_by_user()`) live in `includes/members.php`.
+  by sector, with a legend, plus any drawn farm lot boundary polygons
+  (dashed, dark grey) layered underneath for detail. Tapping a marker shows
+  the lot name, owner, sector, and hectares, plus a link straight to that
+  member's record. If any farm lots are missing coordinates, a banner tells
+  the officer how many, so incomplete data entry is visible rather than
+  silently skipped.
+- `member/map.php` — scoped to just the logged-in member's own farm lot(s),
+  consistent with the read-only pattern already used on `member/profile.php`.
+  Unlike the officer map, this one shows **only the drawn boundary polygon**
+  for a lot that has one — no separate point marker — since the point is
+  just that polygon's centroid and would be a redundant second symbol for
+  the same shape. A lot with coordinates but no polygon (only possible from
+  data pre-dating the polygon feature) still falls back to a plain point
+  marker so it isn't hidden entirely.
+- No new database tables were needed for the point-based version of this —
+  it reads `farm_lots.latitude` / `farm_lots.longitude`, and (for drawn
+  shapes) `farm_lots.boundary_geojson` — see "Farm Lot Polygons" below.
+  Data-access functions live in `includes/members.php`
+  (`get_mapped_farm_lots()`, `count_unmapped_farm_lots()`) and
+  `includes/farm_lot_boundaries.php` (`get_farm_lots_with_boundaries()`).
 - Sector marker colors are assigned dynamically from a fixed palette based
   on whatever sector names exist in the `sectors` table, so adding a 4th,
   5th, etc. sector via `officer/sectors.php` just works without code changes.
@@ -554,6 +618,65 @@ sector automatically.
 - All of the drawing/preview/save interactivity is vanilla JavaScript
   (`assets/js/sector-boundaries.js`) talking to two small JSON API
   endpoints — no framework, consistent with the rest of the stack.
+
+## Farm Lot Polygons (implemented — revised)
+
+Individual farm lots are drawn as their actual shape on the map, using
+the same drawing tool as sector boundaries, applied one level down to an
+individual lot. **A farm lot's location is now defined ONLY by its drawn
+boundary polygon** — there is no separate point-picker map, and
+latitude/longitude are no longer manually editable fields.
+
+- **`farm_lots.boundary_geojson`** stores the polygon: a JSON array of
+  `[lat, lng]` vertex pairs, drawn with Leaflet.draw — same format
+  `sectors.boundary_geojson` uses. `sql/migrations/003_farm_lot_polygons.sql`
+  adds this column to an existing database; a fresh install already has it
+  via `sql/bambosa_db.sql`.
+- **`latitude`/`longitude` are purely derived, never directly edited.**
+  They exist only so anything that needs a single point — the
+  point-in-polygon sector auto-assignment check, and the mapped-lot list
+  queries — doesn't need to know about polygons at all. Saving a lot
+  computes both from the polygon's **centroid** (`polygon_centroid()` in
+  `includes/farm_lot_boundaries.php`, a simple vertex average — precise
+  enough at farm-lot scale, no extra math library needed) and writes them
+  together with the polygon in the same save. A lot with no polygon
+  drawn has `NULL` latitude/longitude — there's no "point but no shape"
+  state anymore.
+- **One form, one save — no separate "Save Boundary" button.** Earlier
+  drafts of this feature had the boundary map save itself via its own
+  AJAX call, independent of the rest of the lot's fields, which meant an
+  officer could save the lot's name/area without realizing the boundary
+  they'd drawn was never actually saved (or vice versa). Now the drawn
+  polygon is serialized to a hidden `<input name="boundary_points">`
+  field (`assets/js/farm-lot-boundary.js` keeps it in sync as the officer
+  draws/edits/clears the shape), and it's submitted and saved together
+  with everything else in one normal form POST
+  (`officer/member_view.php`). This also means drawing a boundary works
+  the same for a brand-new lot as for editing an existing one — there's
+  no "save the lot first, then come back to draw it" limitation anymore.
+- **Server-side**, `normalize_and_center_boundary()` in
+  `includes/farm_lot_boundaries.php` validates the submitted points (0
+  points is valid — "no boundary" — but 1 or 2 is rejected as an
+  incomplete polygon; needs at least 3) and computes the centroid, and
+  `create_farm_lot()`/`update_farm_lot()` in `includes/members.php`
+  persist the polygon and derived point together in a single query.
+- **Where it's shown:** `officer/map.php` renders farm lot polygons
+  (thin, dashed, dark grey) alongside sector boundaries (thicker,
+  colored) and still also plots the sector-colored point marker for
+  quick visual scanning across many lots at once. `member/map.php`
+  instead shows **only the polygon** for a member's own lot(s) — no
+  redundant point marker once a shape exists, since the point is just
+  the shape's centroid; a lot somehow has a point but no polygon (only
+  possible from data predating this feature) still falls back to a
+  plain marker so it isn't hidden entirely.
+- Both the officer's and member's farm-lot tables (`officer/member_view.php`,
+  `member/profile.php`) show a "Drawn" / "Not drawn" badge instead of raw
+  coordinates, since the coordinates alone aren't the interesting fact
+  anymore — whether a shape exists is.
+- **Sector auto-assignment is unaffected** by any of this — it already
+  worked purely off whatever `latitude`/`longitude` ended up being on the
+  lot row, so it automatically now runs against the polygon's centroid
+  with no changes needed to `includes/sector_boundaries.php` at all.
 
 ## Epic 3: ISF Billing (implemented)
 
@@ -621,3 +744,8 @@ the original scope, if useful later:
 - [x] Conflict detection for overlapping machinery reservations / rotation schedules — both list pages now show a "⚠ Overlap" badge next to any entry that overlaps another pending/approved reservation (same machine) or another schedule (same sector); saving a conflicting schedule also shows a warning. This is flag-only, not a hard block, since the officer still makes the final call — same philosophy as the original member-side reservation warning.
 - Printable/PDF bill or receipt generation
 - Importing a real QGIS-exported boundary dataset (GeoJSON/shapefile) to replace or refine the manually-drawn polygons
+- **[PLANNED — awaiting go-ahead, not yet implemented]** SMTP email configuration, to power two things that currently have no email step at all:
+  - **Forgot password**, via a time-limited email verification link (there's currently no self-service password recovery — only the logged-in "change my password" flow described above).
+  - **Account activation notification** — a member's account sits in `pending` status after signup until an officer approves it (see Epic 2), but the member currently has no way of knowing when that happens except by trying to log in again. Once SMTP is configured, they should get an automatic email the moment an officer flips their status to `active`.
+- [x] Store farm lot boundaries as GeoJSON polygons instead of (or alongside) a single lat/lon point — implemented; see "Farm Lot Polygons" above for the full writeup. `farm_lots.latitude`/`longitude` are kept and now recomputed as the drawn polygon's centroid whenever one is saved, so nothing else needed to change to keep working.
+

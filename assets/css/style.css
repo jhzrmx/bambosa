@@ -267,6 +267,36 @@ footer.site-footer {
   .form-row { flex-direction: column; gap: 0; }
 }
 
+.checkbox-list {
+  margin-top: 0.6rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--clr-border);
+  border-radius: 8px;
+  background: #fafcfa;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.checkbox-list-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  font-weight: 400;
+}
+
+.checkbox-list-item input[type="checkbox"] {
+  width: auto;
+}
+
+.checkbox-list-item.is-disabled {
+  color: var(--clr-muted);
+  opacity: 0.6;
+}
+
 .btn-full {
   width: 100%;
   padding: 0.85rem;
@@ -1007,6 +1037,14 @@ footer.site-footer {
 
 .map-container-small {
   height: 380px;
+}
+
+.map-container-disabled {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f4f7f5;
+  text-align: center;
 }
 
 /* Leaflet injects its own inline styles on tiles/panes; this just makes sure

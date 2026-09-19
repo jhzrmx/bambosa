@@ -173,7 +173,11 @@ $activeNav = 'profile';
             <td><?= htmlspecialchars($lot['lot_name']) ?></td>
             <td><?= htmlspecialchars($lot['sector_name'] ?? '—') ?></td>
             <td><?= number_format($lot['land_area_ha'], 2) ?></td>
-            <td><?= $lot['latitude'] !== null ? htmlspecialchars($lot['latitude']) . ', ' . htmlspecialchars($lot['longitude']) : '—' ?></td>
+            <td><?= $lot['latitude'] !== null ? htmlspecialchars($lot['latitude']) . ', ' . htmlspecialchars($lot['longitude']) : '—' ?>
+              <?php if (!empty($lot['boundary_geojson'])): ?>
+                <span class="status-badge status-active" title="This lot has a drawn boundary on the map; coordinates shown are its center point">Boundary drawn</span>
+              <?php endif; ?>
+            </td>
           </tr>
         <?php endforeach; endif; ?>
       </tbody>

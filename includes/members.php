@@ -230,26 +230,40 @@ function get_total_land_area(PDO $pdo, int $userId): float
     return (float) $stmt->fetch()['total'];
 }
 
-/** Create a new farm lot record. Returns the new lot_id. */
+/**
+ * Create a new farm lot record. Returns the new lot_id.
+ *
+ * $data['latitude']/['longitude']/['boundary_geojson'] are expected to
+ * already be fully resolved by the caller (see
+ * normalize_and_center_boundary() in includes/farm_lot_boundaries.php) —
+ * this function just persists whatever it's given, it doesn't compute a
+ * centroid or validate polygon shape itself.
+ */
 function create_farm_lot(PDO $pdo, array $data): int
 {
     $stmt = $pdo->prepare(
-        'INSERT INTO farm_lots (user_id, sector_id, lot_name, land_area_ha, latitude, longitude, notes)
-         VALUES (:user_id, :sector_id, :lot_name, :land_area_ha, :latitude, :longitude, :notes)'
+        'INSERT INTO farm_lots (user_id, sector_id, lot_name, land_area_ha, latitude, longitude, boundary_geojson, notes)
+         VALUES (:user_id, :sector_id, :lot_name, :land_area_ha, :latitude, :longitude, :boundary_geojson, :notes)'
     );
     $stmt->execute([
-        'user_id'      => $data['user_id'],
-        'sector_id'    => $data['sector_id'] ?: null,
-        'lot_name'     => $data['lot_name'],
-        'land_area_ha' => $data['land_area_ha'],
-        'latitude'     => $data['latitude'] ?: null,
-        'longitude'    => $data['longitude'] ?: null,
-        'notes'        => $data['notes'] ?: null,
+        'user_id'          => $data['user_id'],
+        'sector_id'        => $data['sector_id'] ?: null,
+        'lot_name'         => $data['lot_name'],
+        'land_area_ha'     => $data['land_area_ha'],
+        'latitude'         => $data['latitude'] ?? null,
+        'longitude'        => $data['longitude'] ?? null,
+        'boundary_geojson' => $data['boundary_geojson'] ?? null,
+        'notes'            => $data['notes'] ?: null,
     ]);
     return (int) $pdo->lastInsertId();
 }
 
-/** Update an existing farm lot record. */
+/**
+ * Update an existing farm lot record — including its boundary polygon and
+ * derived latitude/longitude, all saved together in this one call. See
+ * create_farm_lot()'s note above about $data['latitude']/['longitude']/
+ * ['boundary_geojson'] already being resolved before this is called.
+ */
 function update_farm_lot(PDO $pdo, int $lotId, array $data): void
 {
     $stmt = $pdo->prepare(
@@ -259,17 +273,19 @@ function update_farm_lot(PDO $pdo, int $lotId, array $data): void
             land_area_ha = :land_area_ha,
             latitude = :latitude,
             longitude = :longitude,
+            boundary_geojson = :boundary_geojson,
             notes = :notes
          WHERE lot_id = :lot_id'
     );
     $stmt->execute([
-        'sector_id'    => $data['sector_id'] ?: null,
-        'lot_name'     => $data['lot_name'],
-        'land_area_ha' => $data['land_area_ha'],
-        'latitude'     => $data['latitude'] ?: null,
-        'longitude'    => $data['longitude'] ?: null,
-        'notes'        => $data['notes'] ?: null,
-        'lot_id'       => $lotId,
+        'sector_id'        => $data['sector_id'] ?: null,
+        'lot_name'         => $data['lot_name'],
+        'land_area_ha'     => $data['land_area_ha'],
+        'latitude'         => $data['latitude'] ?? null,
+        'longitude'        => $data['longitude'] ?? null,
+        'boundary_geojson' => $data['boundary_geojson'] ?? null,
+        'notes'            => $data['notes'] ?: null,
+        'lot_id'           => $lotId,
     ]);
 }
 
@@ -378,16 +394,3 @@ function get_average_farm_lot_location(PDO $pdo): ?array
     return ['lat' => (float) $row['avg_lat'], 'lng' => (float) $row['avg_lng']];
 }
 
-/** Farm lots for one member that HAVE coordinates, joined with sector name, for the member's own map. */
-function get_mapped_farm_lots_by_user(PDO $pdo, int $userId): array
-{
-    $stmt = $pdo->prepare(
-        "SELECT fl.*, s.sector_name
-         FROM farm_lots fl
-         LEFT JOIN sectors s ON s.sector_id = fl.sector_id
-         WHERE fl.user_id = :uid AND fl.latitude IS NOT NULL AND fl.longitude IS NOT NULL
-         ORDER BY fl.lot_name"
-    );
-    $stmt->execute(['uid' => $userId]);
-    return $stmt->fetchAll();
-}

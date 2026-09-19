@@ -16,6 +16,14 @@ if (isset($_GET['edit'])) {
     $editingSchedule = get_schedule_by_id($pdo, (int) $_GET['edit']);
 }
 
+// Sector IDs already sharing this schedule's group (siblings), used both
+// to pre-check the "other sectors" list when editing and, together with
+// the primary sector, as the full "wanted" set update_schedule_group()
+// reconciles against.
+$editingSiblingSectorIds = $editingSchedule
+    ? get_sibling_schedule_sector_ids($pdo, (int) $editingSchedule['schedule_id'])
+    : [];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save') {
     if (!csrf_verify($_POST['csrf_token'] ?? null)) {
         $errors[] = 'Invalid form submission. Please try again.';
@@ -26,6 +34,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
     $startTime = $_POST['start_time'] ?? '';
     $endTime   = $_POST['end_time'] ?? '';
     $notes     = trim($_POST['notes'] ?? '');
+    $applyToOtherSectors = isset($_POST['apply_to_other_sectors']);
+    $otherSectorIds = $applyToOtherSectors
+        ? array_map('intval', $_POST['other_sector_ids'] ?? [])
+        : [];
 
     if ($sectorId <= 0) {
         $errors[] = 'Please select a sector.';
@@ -37,10 +49,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
     }
 
     if (empty($errors)) {
-        $hasConflict = has_overlapping_schedule($pdo, $sectorId, $startTime, $endTime, $id > 0 ? $id : null);
+        // The full set of sectors this schedule should apply to: the
+        // primary sector picked in the dropdown, plus any additional
+        // sectors checked under "also create/keep this schedule for
+        // other sectors" (only meaningful when that checkbox is on).
+        $allSectorIds = array_unique(array_merge([$sectorId], $otherSectorIds));
+
+        // When editing, build a sector_id => schedule_id map of whatever
+        // rows currently make up this schedule's group (or just itself,
+        // if it isn't grouped), so the conflict check below can exclude
+        // each sector's OWN existing row rather than flagging a sibling
+        // as "conflicting" with itself.
+        $existingRowBySector = [];
+        if ($id > 0) {
+            $existingRowBySector[$sectorId] = $id;
+            if (!empty($editingSiblingSectorIds)) {
+                $currentSchedule = get_schedule_by_id($pdo, $id);
+                if ($currentSchedule && $currentSchedule['group_id'] !== null) {
+                    $siblingStmt = $pdo->prepare(
+                        'SELECT schedule_id, sector_id FROM rotation_schedules WHERE group_id = :gid'
+                    );
+                    $siblingStmt->execute(['gid' => $currentSchedule['group_id']]);
+                    foreach ($siblingStmt->fetchAll() as $row) {
+                        $existingRowBySector[(int) $row['sector_id']] = (int) $row['schedule_id'];
+                    }
+                }
+            }
+        }
+
+        // Conflict check against every sector this will end up covering,
+        // not just the primary one, so the warning doesn't miss a
+        // conflict hiding in one of the "other sectors". Each sector
+        // excludes its own existing row (if any) so an unchanged sibling
+        // doesn't flag as conflicting with itself.
+        $hasConflict = false;
+        foreach ($allSectorIds as $checkSectorId) {
+            $excludeId = $existingRowBySector[$checkSectorId] ?? null;
+            if (has_overlapping_schedule($pdo, $checkSectorId, $startTime, $endTime, $excludeId)) {
+                $hasConflict = true;
+                break;
+            }
+        }
 
         if ($id > 0) {
-            update_schedule($pdo, $id, $sectorId, $startTime, $endTime, $notes);
+            update_schedule_group($pdo, $id, $sectorId, $allSectorIds, $startTime, $endTime, $notes, (int) $_SESSION['user_id']);
+        } elseif (count($allSectorIds) > 1) {
+            create_schedule_group($pdo, $allSectorIds, $startTime, $endTime, $notes, (int) $_SESSION['user_id']);
         } else {
             create_schedule($pdo, $sectorId, $startTime, $endTime, $notes, (int) $_SESSION['user_id']);
         }
@@ -122,6 +176,9 @@ $pageBaseUrl = base_url('officer/schedules.php');
                 <?php if ($hasConflict): ?>
                   <span class="status-badge status-pending" title="Overlaps another schedule entry in this sector">⚠ Overlap</span>
                 <?php endif; ?>
+                <?php if (!empty($s['group_id'])): ?>
+                  <span class="status-badge status-active" title="This schedule is shared with one or more other sectors">Shared</span>
+                <?php endif; ?>
               </td>
               <td><?= htmlspecialchars(date('M j, Y g:i A', strtotime($s['start_time']))) ?></td>
               <td><?= htmlspecialchars(date('M j, Y g:i A', strtotime($s['end_time']))) ?></td>
@@ -166,6 +223,30 @@ $pageBaseUrl = base_url('officer/schedules.php');
             <?php endforeach; ?>
           </select>
         </div>
+
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="apply_to_other_sectors" name="apply_to_other_sectors"
+              style="width:auto; display:inline-block;" <?= !empty($editingSiblingSectorIds) ? 'checked' : '' ?>>
+            Also <?= $editingSchedule ? 'apply this same schedule to' : 'create this same schedule for' ?> other sectors
+          </label>
+          <p class="muted-note" style="margin:0.3rem 0 0;">
+            <?= $editingSchedule
+                ? 'Checked sectors below will be kept in sync with the start/end time and notes above. Unchecking a sector that currently shares this schedule will ungroup it — that sector keeps its own schedule entry (unchanged), it just stops being kept in sync with this one. Delete it separately from the list below if you actually want it gone.'
+                : 'Check any additional sectors that should get this exact same start/end time and notes, saved as separate entries you can still edit individually later.' ?>
+          </p>
+          <div id="otherSectorsList" class="checkbox-list" style="<?= empty($editingSiblingSectorIds) ? 'display:none;' : '' ?>">
+            <?php foreach ($sectors as $sec): ?>
+              <label class="checkbox-list-item" id="otherSectorItem<?= (int) $sec['sector_id'] ?>">
+                <input type="checkbox" name="other_sector_ids[]" value="<?= (int) $sec['sector_id'] ?>"
+                  class="other-sector-checkbox"
+                  data-sector-id="<?= (int) $sec['sector_id'] ?>"
+                  <?= in_array((int) $sec['sector_id'], $editingSiblingSectorIds, true) ? 'checked' : '' ?>>
+                <?= htmlspecialchars($sec['sector_name']) ?>
+              </label>
+            <?php endforeach; ?>
+          </div>
+        </div>
 	  
         <div class="form-row">
           <div class="form-group">
@@ -195,5 +276,42 @@ $pageBaseUrl = base_url('officer/schedules.php');
 </div>
 
 <script src="<?= base_url('assets/js/dashboard.js') ?>"></script>
+<?php if ($isAddingOrEditing && !empty($sectors)): ?>
+<script>
+(function () {
+  var toggleCheckbox = document.getElementById('apply_to_other_sectors');
+  var otherSectorsList = document.getElementById('otherSectorsList');
+  var sectorSelect = document.getElementById('sector_id');
+  if (!toggleCheckbox || !otherSectorsList || !sectorSelect) return;
+
+  function updatePrimarySectorExclusion() {
+    // The sector currently chosen in the main dropdown can't also be
+    // picked in the "other sectors" list — that would mean applying the
+    // schedule to the same sector twice. Disable (and uncheck) whichever
+    // checkbox matches the current dropdown selection, re-enable the rest.
+    var primaryId = sectorSelect.value;
+    document.querySelectorAll('.other-sector-checkbox').forEach(function (cb) {
+      var item = document.getElementById('otherSectorItem' + cb.dataset.sectorId);
+      var isPrimary = cb.dataset.sectorId === primaryId;
+      cb.disabled = isPrimary;
+      if (isPrimary) cb.checked = false;
+      if (item) item.classList.toggle('is-disabled', isPrimary);
+    });
+  }
+
+  function updateListVisibility() {
+    otherSectorsList.style.display = toggleCheckbox.checked ? 'flex' : 'none';
+  }
+
+  toggleCheckbox.addEventListener('change', updateListVisibility);
+  sectorSelect.addEventListener('change', updatePrimarySectorExclusion);
+
+  // Initial state on page load (handles both a fresh "Add" form and an
+  // "Edit" form that's re-rendering with the checkbox already checked).
+  updateListVisibility();
+  updatePrimarySectorExclusion();
+})();
+</script>
+<?php endif; ?>
 </body>
 </html>

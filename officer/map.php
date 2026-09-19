@@ -4,12 +4,14 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/members.php';
 require_once __DIR__ . '/../includes/sector_boundaries.php';
+require_once __DIR__ . '/../includes/farm_lot_boundaries.php';
 
 require_role('officer');
 
 $mappedLots = get_mapped_farm_lots($pdo);
 $unmappedCount = count_unmapped_farm_lots($pdo);
 $sectorsWithBoundaries = get_sectors_with_boundaries($pdo);
+$lotsWithBoundaries = get_farm_lots_with_boundaries($pdo);
 
 // Build a simple, stable color per sector name so the same sector always
 // gets the same marker color across page loads.
@@ -54,6 +56,14 @@ $boundaryPolygons = array_map(function ($sb) use ($sectorColors) {
         'boundary' => $sb['boundary'],
     ];
 }, $sectorsWithBoundaries);
+
+$lotBoundaryPolygons = array_map(function ($lb) {
+    return [
+        'lotName'  => $lb['lot_name'],
+        'owner'    => $lb['owner_name'],
+        'boundary' => $lb['boundary'],
+    ];
+}, array_filter($lotsWithBoundaries, fn($lb) => count($lb['boundary']) >= 3));
 
 $activeNav = 'map';
 ?>
@@ -100,12 +110,18 @@ $activeNav = 'map';
             <?= htmlspecialchars($sectorName) ?>
           </span>
         <?php endforeach; ?>
+        <?php if (!empty($lotBoundaryPolygons)): ?>
+          <span class="legend-item">
+            <span class="legend-swatch" style="background:#3a3a3a;"></span>
+            Farm lot boundary
+          </span>
+        <?php endif; ?>
       </div>
 
       <div id="farmMap" class="map-container"></div>
 
       <p class="muted-note" style="margin-top:0.75rem;">
-        <?= count($mappedLots) ?> farm lot<?= count($mappedLots) === 1 ? '' : 's' ?> shown.
+        <?= count($mappedLots) ?> farm lot<?= count($mappedLots) === 1 ? '' : 's' ?> shown<?php if (!empty($lotBoundaryPolygons)): ?>, <?= count($lotBoundaryPolygons) ?> with a drawn boundary<?php endif; ?>.
         Tap a marker for details, or tap "View member" to open that member's record.
       </p>
     <?php endif; ?>
@@ -114,11 +130,12 @@ $activeNav = 'map';
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="<?= base_url('assets/js/dashboard.js') ?>"></script>
-<?php if (!empty($mappedLots) || !empty($boundaryPolygons)): ?>
+<?php if (!empty($mappedLots) || !empty($boundaryPolygons) || !empty($lotBoundaryPolygons)): ?>
 <script>
 (function () {
   var points = <?= json_encode($mapPoints, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
   var boundaries = <?= json_encode($boundaryPolygons, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+  var lotBoundaries = <?= json_encode($lotBoundaryPolygons, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
   var map = L.map('farmMap');
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -128,7 +145,7 @@ $activeNav = 'map';
 
   var fitTargets = [];
 
-  // Draw sector boundaries first so farm lot markers render on top of them.
+  // Draw sector boundaries first so farm lot markers/boundaries render on top of them.
   boundaries.forEach(function (b) {
     if (!b.boundary || b.boundary.length < 3) return;
     var poly = L.polygon(b.boundary, {
@@ -139,6 +156,22 @@ $activeNav = 'map';
     }).bindTooltip(b.name, { sticky: true });
     poly.addTo(map);
     b.boundary.forEach(function (pt) { fitTargets.push(pt); });
+  });
+
+  // Draw farm lot boundaries next (still under the point markers), styled
+  // distinctly from sector boundaries — thinner, dark, dashed — so the two
+  // don't visually compete when a lot's boundary sits inside a sector's.
+  lotBoundaries.forEach(function (lb) {
+    if (!lb.boundary || lb.boundary.length < 3) return;
+    var poly = L.polygon(lb.boundary, {
+      color: '#3a3a3a',
+      weight: 1.5,
+      opacity: 0.6,
+      fillOpacity: 0.12,
+      dashArray: '3,3'
+    }).bindTooltip(lb.lotName + ' (' + lb.owner + ')', { sticky: true });
+    poly.addTo(map);
+    lb.boundary.forEach(function (pt) { fitTargets.push(pt); });
   });
 
   var markers = [];
