@@ -116,6 +116,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <input type="password" id="password" name="password" required>
       </div>
 
+      <div class="auth-footer-link" style="text-align:right; margin-bottom:1rem;">
+        <a href="<?= base_url('forgot_password.php') ?>">Forgot password?</a>
+      </div>
+
       <button type="submit" class="btn-full">Log In</button>
     </form>
 

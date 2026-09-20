@@ -17,10 +17,16 @@ bambosa/
 ├── login.php                # Login form + auth logic
 ├── signup.php                # Signup form (registers as "member")
 ├── logout.php                # Destroys session, redirects to login
+├── forgot_password.php        # Request a password reset email
+├── reset_password.php          # Lands from the emailed reset link; sets new password
 ├── calendar_data.php          # JSON endpoint the dashboard calendar fetches when navigating months
 │                                # (lives here, not in includes/, since includes/.htaccess blocks direct HTTP access)
 ├── config/
 │   ├── database.php          # PDO connection (edit credentials here)
+│   ├── smtp.php                # SMTP credentials + settings for outgoing email (edit here)
+│   └── .htaccess              # Blocks direct browser access
+├── vendor/
+│   ├── phpmailer/phpmailer/src/  # PHPMailer 6.12.0 core files (Exception/PHPMailer/SMTP.php) — vendored directly, see VERSION.txt inside
 │   └── .htaccess              # Blocks direct browser access
 ├── includes/
 │   ├── base_path_utils.php     # BAMBOSA_BASE_PATH detection + base_url() helper
@@ -34,6 +40,8 @@ bambosa/
 │   ├── billing.php                 # ISF billing periods, bills, payments data access
 │   ├── pagination.php               # Shared search/pagination helpers for officer list pages
 │   ├── calendar_events.php           # Builds the dashboard calendar's merged schedule + reservation event list
+│   ├── mailer.php                     # PHPMailer wrapper — send_email(), render_email_layout()
+│   ├── password_reset.php              # Forgot-password token generation, verification, consumption
 │   ├── partials/
 │   │   ├── officer_sidebar.php     # Shared officer nav (topbar + drawer + overlay)
 │   │   ├── member_sidebar.php       # Shared member nav (topbar + drawer + overlay)
@@ -76,6 +84,7 @@ bambosa/
 │   │   ├── 002_sector_polygons.sql   # Adds sectors.boundary_geojson + sector_auto_assignments to an EXISTING db
 │   │   ├── 003_farm_lot_polygons.sql  # Adds farm_lots.boundary_geojson to an EXISTING db
 │   │   ├── 004_schedule_groups.sql     # Adds rotation_schedules.group_id to an EXISTING db
+│   │   ├── 005_password_resets.sql      # Adds the password_resets table to an EXISTING db
 │   │   └── .htaccess
 │   └── .htaccess
 └── serve.bat                  # Windows convenience script — runs `php -S localhost:8000`
@@ -92,6 +101,14 @@ PHP 8+-only function would otherwise be the natural choice, a small
 `if (!function_exists(...))`-guarded 7.4-compatible helper is added next
 to where it's needed instead (e.g. `str_has()` in `includes/pagination.php`,
 a `strpos()`-based stand-in for `str_contains()`).
+
+**Optional — outgoing email (forgot password, activation notices):**
+PHPMailer 6.12.0's core files are already vendored in under
+`vendor/phpmailer/phpmailer/src/`, so the only setup step is filling in
+real credentials in `config/smtp.php` and setting `SMTP_ENABLED = true`.
+Nothing else in the app depends on this — every other feature works
+fully without it. See "Outgoing Email" further down for the complete
+setup steps and what happens if this is skipped.
 
 **Fresh install (no existing database):**
 1. Copy the `bambosa/` folder into `htdocs/`.
@@ -124,6 +141,8 @@ only replaces Apache, not the database.
      to `farm_lots`.
    - `sql/migrations/004_schedule_groups.sql` — adds `group_id` to
      `rotation_schedules`.
+   - `sql/migrations/005_password_resets.sql` — creates the
+     `password_resets` table.
 3. None of this touches data you already have in `users`, `farm_lots`,
    `sectors`, etc. All migrations are safe to re-run if you're ever unsure
    whether one was already applied (`CREATE TABLE IF NOT EXISTS` throughout,
@@ -278,10 +297,14 @@ Run that command snippet once then replace the output of
   - `require_role('officer'|'member')` — kicks users with the wrong role to their own dashboard
   - `csrf_token()` / `csrf_verify()` — CSRF protection on login/signup forms
 - New signups are inserted with `status = 'pending'` and role `member`.
-  An officer must manually flip their status to `active` in the database
-  (or later, via an admin approval screen) before they can log in.
-  Officer accounts are **not** self-registrable — provision them directly
-  in the database for security.
+  An officer approves/activates them from `officer/members.php`
+  (`officer/update_status.php`) — see Epic 2 below — before they can log
+  in. Officer accounts are **not** self-registrable — provision them
+  directly in the database for security.
+- Forgotten passwords are self-service via `forgot_password.php` /
+  `reset_password.php` — see "Outgoing Email" further down for the full
+  writeup of how that flow works and what it depends on (SMTP being
+  configured).
 
 ## Dashboard calendar
 
@@ -744,8 +767,110 @@ the original scope, if useful later:
 - [x] Conflict detection for overlapping machinery reservations / rotation schedules — both list pages now show a "⚠ Overlap" badge next to any entry that overlaps another pending/approved reservation (same machine) or another schedule (same sector); saving a conflicting schedule also shows a warning. This is flag-only, not a hard block, since the officer still makes the final call — same philosophy as the original member-side reservation warning.
 - Printable/PDF bill or receipt generation
 - Importing a real QGIS-exported boundary dataset (GeoJSON/shapefile) to replace or refine the manually-drawn polygons
-- **[PLANNED — awaiting go-ahead, not yet implemented]** SMTP email configuration, to power two things that currently have no email step at all:
-  - **Forgot password**, via a time-limited email verification link (there's currently no self-service password recovery — only the logged-in "change my password" flow described above).
-  - **Account activation notification** — a member's account sits in `pending` status after signup until an officer approves it (see Epic 2), but the member currently has no way of knowing when that happens except by trying to log in again. Once SMTP is configured, they should get an automatic email the moment an officer flips their status to `active`.
+- [x] SMTP email configuration — implemented; see "Outgoing Email (SMTP / Forgot Password / Activation Notice)" below for the full writeup. PHPMailer 6.12.0's core files are already vendored in under `vendor/phpmailer/phpmailer/src/`, so the only remaining step is filling in real provider credentials in `config/smtp.php` and setting `SMTP_ENABLED = true`.
 - [x] Store farm lot boundaries as GeoJSON polygons instead of (or alongside) a single lat/lon point — implemented; see "Farm Lot Polygons" above for the full writeup. `farm_lots.latitude`/`longitude` are kept and now recomputed as the drawn polygon's centroid whenever one is saved, so nothing else needed to change to keep working.
+
+## Outgoing Email (SMTP / Forgot Password / Activation Notice)
+
+Two features that previously had no email step at all now send real
+email, via **PHPMailer 6.x (core files only)** over plain SMTP:
+
+- **Forgot password** — `forgot_password.php` takes an email address and
+  (if it matches a real, non-deactivated account) emails a time-limited,
+  single-use reset link. `reset_password.php` is where that link lands,
+  and lets the person choose a new password.
+- **Account activation notice** — the moment an officer flips a member's
+  status from `pending` to `active` (`officer/update_status.php`), the
+  member gets an automatic "your account is now active" email. It only
+  fires on that specific transition — re-saving an already-active member,
+  or any other status change, doesn't re-send it.
+
+### PHPMailer is already vendored in
+
+This project deliberately has **no Composer dependency** anywhere (it's
+plain PHP throughout), so PHPMailer's three core files are vendored
+directly into the codebase rather than pulled in via a package manager:
+
+```
+vendor/phpmailer/phpmailer/src/Exception.php
+vendor/phpmailer/phpmailer/src/PHPMailer.php
+vendor/phpmailer/phpmailer/src/SMTP.php
+```
+
+This is PHPMailer **6.12.0**, official unmodified source, core files
+only — no OAuth.php, POP3.php, DSNConfigurator.php, or the language
+folder, since BAMBOSA only ever does plain SMTP with a username/password.
+See `vendor/phpmailer/phpmailer/src/VERSION.txt` for exactly what's
+included and how to upgrade to a newer 6.x release later if needed. The
+`vendor/phpmailer/phpmailer/src/...` path deliberately mirrors what
+Composer itself would generate, so switching to Composer later (if this
+project ever adopts it) wouldn't require changing anything in
+`includes/mailer.php`.
+
+There's nothing to install — the only remaining step is filling in real
+credentials in `config/smtp.php` and setting `SMTP_ENABLED = true`, per
+the "Configuration" section below.
+
+### Configuration — `config/smtp.php`
+
+A new file alongside `config/database.php`, protected by the same
+`config/.htaccess` (`Require all denied`) so it can never be fetched
+directly over HTTP. Set `SMTP_ENABLED = true` and fill in
+`SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_ENCRYPTION`
+plus `SMTP_FROM_EMAIL`/`SMTP_FROM_NAME` — the file has worked examples
+for Gmail (App Password), Outlook/Microsoft 365, and a typical
+cPanel/shared-hosting mailbox in its comments.
+
+### Graceful degradation — nothing breaks if email isn't set up
+
+Both features work correctly with email fully switched off
+(`SMTP_ENABLED = false`, the default until you configure it) or
+misconfigured (e.g. wrong credentials, unreachable host, or — if the
+`vendor/phpmailer` folder is ever deleted or excluded from a deploy — the
+PHPMailer files missing entirely):
+
+- **Forgot password** shows the exact same "if that email is registered,
+  a reset link has been sent" confirmation message regardless of whether
+  the email actually went out, whether the address exists in the system
+  at all, or whether SMTP is configured. This isn't a bug — see
+  `includes/password_reset.php`'s `request_password_reset()` — it's a
+  deliberate anti-enumeration measure: a forgot-password form that
+  visibly reacts differently to "that email exists" vs. "it doesn't"
+  hands an attacker a way to fish for valid member email addresses.
+- **Account activation** always changes the member's status in the
+  database and lets them log in immediately — whether or not the
+  notification email actually sent is completely irrelevant to that.
+- Every failure (missing PHPMailer files, unreachable host, rejected
+  credentials, invalid recipient) is caught inside `send_email()` in
+  `includes/mailer.php` and logged via `error_log()` with the specific
+  reason, but never bubbles up as a visible error, a broken page, or a
+  blocked action. An officer/admin troubleshooting "why didn't the email
+  arrive" checks the PHP error log, not the end user's screen.
+
+### Security notes
+
+- **Reset tokens are never stored in plaintext.** `password_resets.token_hash`
+  stores only the SHA-256 hash of a cryptographically random 32-byte
+  token; the raw token exists only in the emailed link and briefly in
+  memory. A database leak alone doesn't hand over usable reset links,
+  same principle as `password_hash()` for actual account passwords.
+- **Tokens are single-use and time-limited** (30 minutes by default,
+  `PASSWORD_RESET_TTL_MINUTES` in `includes/password_reset.php`) — once
+  used, `used_at` is set and the token is permanently dead, so a leaked
+  or reused link can't be replayed. `consume_password_reset()` marks a
+  token used inside the same transaction as the actual password change,
+  closing the race-condition window where two near-simultaneous requests
+  with the same token could otherwise both succeed.
+- **Token comparison uses `hash_equals()`**, not `===`, to avoid a timing
+  attack that could otherwise be used to guess a valid token hash one
+  byte at a time.
+- **CSRF protection** on both the forgot-password and reset-password
+  forms, consistent with every other form in the app.
+- **No forced unencrypted SMTP fallback** — `includes/mailer.php` maps
+  `config/smtp.php`'s `SMTP_ENCRYPTION` setting to either STARTTLS or
+  implicit TLS explicitly; there's no code path that silently sends
+  credentials over an unencrypted connection if the setting is
+  missing/invalid.
+- New `sql/migrations/005_password_resets.sql` for an existing database
+  (already included in `sql/bambosa_db.sql` for a fresh install).
 

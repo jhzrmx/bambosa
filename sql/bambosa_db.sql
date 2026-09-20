@@ -28,6 +28,25 @@ CREATE TABLE IF NOT EXISTS login_logs (
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- Forgot-password email verification links (see includes/password_reset.php).
+-- A row is created each time someone requests a reset; only the token's
+-- SHA-256 HASH is stored, never the raw token itself — same principle as
+-- never storing a plaintext password. The raw token only ever exists in
+-- the emailed link and briefly in memory while processing a request.
+CREATE TABLE IF NOT EXISTS password_resets (
+    reset_id     INT AUTO_INCREMENT PRIMARY KEY,
+    user_id      INT NOT NULL,
+    token_hash   CHAR(64) NOT NULL,          -- SHA-256 hex digest of the raw token
+    expires_at   DATETIME NOT NULL,
+    used_at      DATETIME DEFAULT NULL,      -- set once the link is used, so it can't be replayed
+    requested_ip VARCHAR(45) DEFAULT NULL,
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_password_resets_token_hash ON password_resets(token_hash);
+CREATE INDEX idx_password_resets_user_id ON password_resets(user_id);
+
 -- Sectors of Barangay Bikal used for water rotation grouping (Epic 4 will use this too)
 CREATE TABLE IF NOT EXISTS sectors (
     sector_id        INT AUTO_INCREMENT PRIMARY KEY,

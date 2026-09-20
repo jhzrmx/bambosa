@@ -1,0 +1,15 @@
+PHPMailer 6.12.0 (core files only: Exception.php, PHPMailer.php, SMTP.php)
+Source: official PHPMailer.zip release, provided directly by the project owner.
+Namespace: PHPMailer\PHPMailer
+
+Not included (not needed — BAMBOSA only uses plain SMTP+password auth):
+  - OAuth.php, OAuthTokenProvider.php (OAuth2 authentication)
+  - POP3.php (POP-before-SMTP authentication)
+  - DSNConfigurator.php (delivery status notifications)
+  - language/ (translated error strings — English default is used)
+
+To upgrade later: replace these three files with the same three files
+from a newer 6.x release's src/ folder. Do not upgrade to a hypothetical
+future 7.x without first checking includes/mailer.php still matches its
+API (namespace, property names, and encryption constants may change
+between major versions).
