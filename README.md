@@ -72,6 +72,9 @@ bambosa/
 │   └── map.php                      # View own farm lot(s) plotted on a Leaflet map
 ├── assets/
 │   ├── css/style.css           # All styling, including responsive breakpoints + map styles
+│   ├── img/
+│   │   ├── favicon.png            # Site favicon (rice-stalk logo), linked on every page
+│   │   └── favicon.ico             # Multi-size (16/32/48px) fallback for older browsers
 │   └── js/
 │       ├── dashboard.js         # Mobile sidebar drawer toggle (vanilla JS, no deps)
 │       ├── dashboard-calendar.js # Dashboard calendar widget — month grid, day details, AJAX month nav (vanilla JS)
@@ -263,6 +266,29 @@ sidebar renders consistently across platforms and browsers. To add a new
 nav item, follow the existing pattern: an `<svg>` with an `<path>` d`
 attribute, followed by a `<span>` with the label text, both inside the
 `<a>` tag.
+
+## Favicon
+
+`assets/img/favicon.png` (the rice-stalk logo) and `assets/img/favicon.ico`
+(a multi-size 16/32/48px fallback generated from the same image, for
+older browsers and OS-level favicon caches that don't support PNG
+favicons) are linked in the `<head>` of every page — every file in
+`member/`, `officer/`, and the root-level auth pages
+(`index.php`, `login.php`, `signup.php`, `forgot_password.php`,
+`reset_password.php`). The one exception is `includes/mailer.php`'s
+`<head>`, which belongs to an HTML email template, not a browser page —
+email clients don't render favicons, so there's nothing to link there.
+
+Both links use `base_url()` like every other asset reference in the app,
+so the favicon resolves correctly regardless of which subdirectory (or
+domain root) BAMBOSA is installed under — see "Works from any
+subdirectory" above.
+
+To replace the logo later: swap out `assets/img/favicon.png` with a new
+image (ideally square, at least 144×144 so it stays sharp on high-DPI
+displays) and regenerate `favicon.ico` from it — any PNG-to-ICO
+conversion tool works, since it's a small offline design asset, not
+something that needs regenerating at request-time.
 
 ## Direct directory access (`/member/`, `/officer/`)
 
@@ -641,6 +667,17 @@ sector automatically.
 - All of the drawing/preview/save interactivity is vanilla JavaScript
   (`assets/js/sector-boundaries.js`) talking to two small JSON API
   endpoints — no framework, consistent with the rest of the stack.
+- **Default map view:** the map centers on the sector currently being
+  edited if it already has a boundary drawn (zoomed to fit that shape),
+  or a calm view centered on the average location of all farm lots
+  (falling back to a fixed Barangay Bikal center if no lots have
+  coordinates yet) when it doesn't. Earlier this instead always zoomed to
+  fit every farm lot marker on the map regardless of which sector was
+  selected, which could land on an oddly tight or off-center view
+  depending on how the lots happened to be scattered — the corrected
+  version always shows something sensible and predictable on first load,
+  matching the same "calm default center" approach the farm lot boundary
+  editor below already used.
 
 ## Farm Lot Polygons (implemented — revised)
 
@@ -700,6 +737,21 @@ latitude/longitude are no longer manually editable fields.
   worked purely off whatever `latitude`/`longitude` ended up being on the
   lot row, so it automatically now runs against the polygon's centroid
   with no changes needed to `includes/sector_boundaries.php` at all.
+- **Show/hide guides while drawing.** The boundary editor on
+  `officer/member_view.php` has two independent checkboxes above the map:
+  "Show sector boundaries" and "Show other farm lots" — both overlay
+  everyone else's drawn shapes as dimmed, dashed, non-editable reference
+  layers (sectors in blue, other lots in purple) so an officer can see
+  "am I drawing inside the right sector?" or "does this overlap a
+  neighboring lot?" without those shapes getting in the way of the one
+  polygon actually being edited. Sector context defaults ON (there's
+  usually only a handful, and it's the most immediately useful
+  reference); other-lots context defaults OFF (there could be many, and
+  showing them all immediately could clutter a small lot's own outline
+  while it's still being drawn) — either can be toggled anytime. A small
+  legend above the map reflects whichever layers are currently visible.
+  The currently-edited lot's own boundary is always excluded from its own
+  "other farm lots" context layer, so it's never shown twice.
 
 ## Epic 3: ISF Billing (implemented)
 

@@ -191,11 +191,40 @@ if ($editingLot && array_key_exists('boundary_geojson', $editingLot)) {
 } else {
     $editingLotBoundary = null;
 }
+
+// Read-only context layers for the boundary-drawing map: every drawn
+// sector boundary, and every OTHER farm lot's drawn boundary (excluding
+// whichever lot is currently being edited, since that one is already
+// shown as the editable polygon itself). These are optional show/hide
+// toggles on the map — see assets/js/farm-lot-boundary.js — so an officer
+// drawing or adjusting a lot's shape can see neighboring sectors and lots
+// as a visual guide without those getting in the way of the polygon
+// they're actually editing.
+$editingLotIdForContext = (int) ($editingLot['lot_id'] ?? 0);
+$contextSectorBoundaries = array_values(array_map(function ($sb) {
+    return [
+        'name'     => $sb['sector_name'],
+        'boundary' => $sb['boundary'],
+    ];
+}, array_filter(get_sectors_with_boundaries($pdo), fn($sb) => count($sb['boundary']) >= 3)));
+
+$contextLotBoundaries = array_values(array_map(function ($lb) {
+    return [
+        'lotName'  => $lb['lot_name'],
+        'owner'    => $lb['owner_name'],
+        'boundary' => $lb['boundary'],
+    ];
+}, array_filter(
+    get_farm_lots_with_boundaries($pdo),
+    fn($lb) => count($lb['boundary']) >= 3 && (int) $lb['lot_id'] !== $editingLotIdForContext
+)));
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<link rel="icon" type="image/png" href="<?= base_url('assets/img/favicon.png') ?>">
+<link rel="shortcut icon" href="<?= base_url('assets/img/favicon.ico') ?>">
 <title><?= htmlspecialchars($member['full_name']) ?> · BAMBOSA Officer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="<?= base_url('assets/css/style.css') ?>">
@@ -325,6 +354,19 @@ if ($editingLot && array_key_exists('boundary_geojson', $editingLot)) {
           </p>
 
           <div id="lotBoundaryAlert"></div>
+
+          <div class="form-row" style="margin-bottom:0.6rem;">
+            <label style="font-weight:400; font-size:0.88rem;">
+              <input type="checkbox" id="toggleSectorContext" style="width:auto; display:inline-block;"<?= empty($contextSectorBoundaries) ? ' disabled' : ' checked' ?>>
+              Show sector boundaries<?= empty($contextSectorBoundaries) ? ' (none drawn yet)' : '' ?>
+            </label>
+            <label style="font-weight:400; font-size:0.88rem;">
+              <input type="checkbox" id="toggleOtherLotsContext" style="width:auto; display:inline-block;"<?= empty($contextLotBoundaries) ? ' disabled' : '' ?>>
+              Show other farm lots<?= empty($contextLotBoundaries) ? ' (none drawn yet)' : '' ?>
+            </label>
+          </div>
+          <div class="map-legend" id="lotBoundaryLegend" style="margin-bottom:0.6rem;"></div>
+
           <div id="lotBoundaryMap" class="map-container map-container-small"></div>
           <p id="lotBoundaryStatus" class="muted-note" style="margin-top:0.5rem;">
             <?= $editingLotBoundary ? 'This lot has a drawn boundary. Edit it above if needed, or draw a new one to replace it.' : 'No boundary drawn yet — this lot will have no map location until one is drawn.' ?>
@@ -392,7 +434,12 @@ if ($editingLot && array_key_exists('boundary_geojson', $editingLot)) {
     hiddenInputId: 'boundary_points',
     clearButtonId: 'btnClearBoundaryDraft',
     statusElementId: 'lotBoundaryStatus',
-    defaultCenter: <?= $mapDefaultCenter ? json_encode($mapDefaultCenter) : 'null' ?>
+    defaultCenter: <?= $mapDefaultCenter ? json_encode($mapDefaultCenter) : 'null' ?>,
+    contextSectors: <?= json_encode($contextSectorBoundaries, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>,
+    contextLots: <?= json_encode($contextLotBoundaries, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>,
+    toggleSectorContextId: 'toggleSectorContext',
+    toggleOtherLotsContextId: 'toggleOtherLotsContext',
+    legendElementId: 'lotBoundaryLegend'
   };
 </script>
 <script src="<?= base_url('assets/js/farm-lot-boundary.js') ?>"></script>

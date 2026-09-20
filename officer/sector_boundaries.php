@@ -53,12 +53,22 @@ $lotsJson = array_map(function ($lot) {
     ];
 }, $mappedLots);
 
+// A calm default view (center + zoom) for whenever the map has nothing in
+// particular to zoom tightly to — i.e. the selected sector has no
+// boundary drawn yet. Same "average of all farm lots, falling back to a
+// fixed Bikal center" logic used on the farm lot boundary editor, so both
+// maps behave consistently instead of one of them lurching to whatever
+// bounding box happens to contain every lot marker.
+$mapDefaultCenter = get_average_farm_lot_location($pdo);
+
 $activeNav = 'boundaries';
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<link rel="icon" type="image/png" href="<?= base_url('assets/img/favicon.png') ?>">
+<link rel="shortcut icon" href="<?= base_url('assets/img/favicon.ico') ?>">
 <title>Sector Boundaries · BAMBOSA Officer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="<?= base_url('assets/css/style.css') ?>">
@@ -177,7 +187,8 @@ $activeNav = 'boundaries';
     lots: <?= json_encode($lotsJson, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>,
     csrfToken: <?= json_encode(csrf_token()) ?>,
     saveUrl: <?= json_encode(base_url('officer/sector_boundary_save.php')) ?>,
-    previewUrl: <?= json_encode(base_url('officer/sector_boundary_preview.php')) ?>
+    previewUrl: <?= json_encode(base_url('officer/sector_boundary_preview.php')) ?>,
+    defaultCenter: <?= $mapDefaultCenter ? json_encode($mapDefaultCenter) : 'null' ?>
   };
 </script>
 <script src="<?= base_url('assets/js/sector-boundaries.js') ?>"></script>

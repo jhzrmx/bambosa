@@ -43,10 +43,13 @@
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
 
-    // Default view: fit to all lots + all existing boundaries if available,
-    // otherwise fall back to a reasonable default center (Barangay Bikal
-    // area is unknown exactly, so we use the first available data point).
-    var fitBoundsTargets = [];
+    // Default view: loadSectorIntoEditor() (called on initial render, below)
+    // decides the actual view — zoomed to the selected sector's boundary if
+    // it has one, otherwise a calm default center. No upfront fitBounds to
+    // farm lot markers here anymore; that used to make the initial view
+    // jump to wherever the lots' bounding box happened to be, which could
+    // be a tight zoom on one corner of the map rather than a sensible
+    // overview of the association's area.
 
     // Read-only layer for all OTHER sectors' boundaries (dimmed, for context).
     var contextLayerGroup = L.layerGroup().addTo(map);
@@ -72,7 +75,6 @@
         'Owner: ' + escapeHtml(lot.owner) + '</div>'
       );
       marker.addTo(lotMarkersGroup);
-      fitBoundsTargets.push([lot.lat, lot.lng]);
     });
 
     // Leaflet.draw control — only lets the officer draw/edit polygons,
@@ -148,10 +150,31 @@
           fillOpacity: 0.2
         });
         editableLayerGroup.addLayer(poly);
+        // Zoom to this sector's own boundary — a calm, predictable view
+        // centered on what's actually being edited, rather than whatever
+        // bounding box happens to contain every farm lot marker on the
+        // map (which could be off in a corner, or force a very wide zoom
+        // if lots are scattered).
+        map.fitBounds(poly.getBounds().pad(0.3));
+      } else {
+        // No boundary drawn for this sector yet — nothing in particular
+        // to zoom to, so fall back to a calm, centered default view
+        // instead of fitting to farm lot markers (see setDefaultView() below).
+        setDefaultView();
       }
       renderContextLayer(sectorId);
       matchText.textContent = 'Draw or edit a polygon above, then click "Preview Matches" to see how many farm lots fall inside it.';
       clearAlert();
+    }
+
+    /** Calm, predictable default view when there's no specific boundary to zoom to. */
+    function setDefaultView() {
+      if (config.defaultCenter) {
+        map.setView([config.defaultCenter.lat, config.defaultCenter.lng], 14);
+      } else {
+        // Barangay Bikal, Libmanan, Camarines Sur — where this association operates.
+        map.setView([13.723053, 122.986048], 14);
+      }
     }
 
     function currentSectorId() {
@@ -327,14 +350,9 @@
 
     // ---- Initial render ----
     renderLegend();
+    // loadSectorIntoEditor() already sets the correct initial view itself
+    // (zoomed to the selected sector's boundary if it has one, otherwise
+    // the calm default center) — no separate fitBounds needed here.
     loadSectorIntoEditor(currentSectorId());
-
-    if (fitBoundsTargets.length > 0) {
-      map.fitBounds(L.latLngBounds(fitBoundsTargets).pad(0.2));
-    } else {
-      // No lots plotted anywhere yet — default to Barangay Bikal, Libmanan,
-      // Camarines Sur, where this association operates.
-      map.setView([13.723053, 122.986048], 14);
-    }
   });
 })();

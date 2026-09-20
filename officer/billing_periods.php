@@ -98,6 +98,8 @@ $pageBaseUrl = base_url('officer/billing_periods.php');
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<link rel="icon" type="image/png" href="<?= base_url('assets/img/favicon.png') ?>">
+<link rel="shortcut icon" href="<?= base_url('assets/img/favicon.ico') ?>">
 <title>Billing Periods · BAMBOSA Officer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="<?= base_url('assets/css/style.css') ?>">
