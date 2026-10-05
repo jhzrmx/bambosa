@@ -24,16 +24,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
     $name        = trim($_POST['name'] ?? '');
     $description = trim($_POST['description'] ?? '');
     $isAvailable = isset($_POST['is_available']);
+    $groupId     = (int) ($_POST['group_id'] ?? 0) ?: null;
+    $damageLevel = (int) ($_POST['damage_level'] ?? 0);
 
     if ($name === '') {
         $errors[] = 'Machinery name is required.';
     }
+    if ($damageLevel < 0 || $damageLevel > 100) {
+        $errors[] = 'Damage level must be between 0 and 100.';
+    }
 
     if (empty($errors)) {
         if ($id > 0) {
-            update_machinery($pdo, $id, $name, $description, $isAvailable);
+            update_machinery($pdo, $id, $name, $description, $isAvailable, $groupId, $damageLevel);
         } else {
-            create_machinery($pdo, $name, $description);
+            create_machinery($pdo, $name, $description, $groupId, $damageLevel);
         }
         header('Location: ' . base_url('officer/machinery.php?flash=saved'));
         exit;
@@ -48,6 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
     exit;
 }
 
+$machineryGroups = get_all_machinery_groups($pdo);
 $searchTerm = get_search_term();
 $totalMachinery = count_machinery($pdo, false, $searchTerm);
 $pagination = build_pagination($totalMachinery, get_current_page());
@@ -73,7 +79,7 @@ $pageBaseUrl = base_url('officer/machinery.php');
 
   <main class="dash-main">
     <h1>Machinery Management</h1>
-    <p>Maintain the list of farming equipment members can reserve. See <a href="<?= base_url('officer/reservations.php') ?>">reservation requests</a> to approve or reject bookings.</p>
+    <p>Maintain the list of farming equipment members can reserve. Manage interchangeable equipment pools on the <a href="<?= base_url('officer/machinery_groups.php') ?>">Machinery Groups page</a>.</p>
 
     <?php if ($flash === 'saved'): ?>
       <div class="alert alert-success">Machinery record saved.</div>
@@ -95,22 +101,31 @@ $pageBaseUrl = base_url('officer/machinery.php');
         <thead>
           <tr>
             <th>Name</th>
+            <th>Type/Group</th>
             <th>Description</th>
             <th>Available?</th>
+            <th>Condition</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           <?php if (empty($machineryList)): ?>
-            <tr><td colspan="4" class="empty-row">No machinery found<?= $searchTerm ? ' for "' . htmlspecialchars($searchTerm) . '"' : ' yet' ?>.</td></tr>
+            <tr><td colspan="6" class="empty-row">No machinery found<?= $searchTerm ? ' for "' . htmlspecialchars($searchTerm) . '"' : ' yet' ?>.</td></tr>
           <?php else: foreach ($machineryList as $m): ?>
             <tr>
               <td><?= htmlspecialchars($m['name']) ?></td>
+              <td><?= $m['group_name'] ? htmlspecialchars($m['group_name']) : '<span class="muted-note">—</span>' ?></td>
               <td><?= htmlspecialchars($m['description'] ?? '—') ?></td>
               <td>
                 <span class="status-badge <?= $m['is_available'] ? 'status-active' : 'status-inactive' ?>">
                   <?= $m['is_available'] ? 'Available' : 'Unavailable' ?>
                 </span>
+              </td>
+              <td>
+                <div class="condition-bar" title="<?= (int) $m['damage_level'] ?>% damaged">
+                  <div class="condition-bar-fill condition-<?= damage_severity_class((int) $m['damage_level']) ?>" style="width:<?= (int) $m['damage_level'] ?>%;"></div>
+                </div>
+                <span class="muted-note"><?= (int) $m['damage_level'] ?>% damaged</span>
               </td>
               <td class="actions-cell">
                 <a href="<?= base_url('officer/machinery.php?edit=' . (int) $m['machinery_id']) ?>" class="link-btn">Edit</a>
@@ -150,6 +165,39 @@ $pageBaseUrl = base_url('officer/machinery.php');
           <label for="description">Description (optional)</label>
           <input type="text" id="description" name="description"
                  value="<?= htmlspecialchars($editingMachinery['description'] ?? '') ?>">
+        </div>
+	  
+        <div class="form-group">
+          <label for="group_id">Machinery Group (optional)</label>
+          <select id="group_id" name="group_id">
+            <option value="">— None (standalone machine) —</option>
+            <?php foreach ($machineryGroups as $g): ?>
+              <option value="<?= (int) $g['group_id'] ?>"
+                <?= isset($editingMachinery['group_id']) && (int) $editingMachinery['group_id'] === (int) $g['group_id'] ? 'selected' : '' ?>>
+                <?= htmlspecialchars($g['group_name']) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+          <p class="muted-note" style="margin:0.3rem 0 0;">
+            Machines in the same group are treated as interchangeable — a member reserves
+            the group, and you'll pick which specific unit to assign when approving the
+            request. Leave as "None" for a one-of-a-kind machine reserved directly.
+            Manage groups themselves on the <a href="<?= base_url('officer/machinery_groups.php') ?>">Machinery Groups page</a>.
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label for="damage_level">Condition — Damage Level</label>
+          <div class="slider-row">
+            <input type="range" id="damage_level" name="damage_level" min="0" max="100" step="1"
+                   value="<?= (int) ($editingMachinery['damage_level'] ?? 0) ?>"
+                   oninput="document.getElementById('damageLevelValue').textContent = this.value + '% damaged';">
+            <span id="damageLevelValue" class="slider-value"><?= (int) ($editingMachinery['damage_level'] ?? 0) ?>% damaged</span>
+          </div>
+          <p class="muted-note" style="margin:0.3rem 0 0;">
+            0% = like new, 100% = fully damaged / unusable. Visible to members on the
+            reservation form so they know a machine's condition before requesting it.
+          </p>
         </div>
 	  
         <div class="form-group">

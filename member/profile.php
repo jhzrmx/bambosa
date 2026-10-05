@@ -43,15 +43,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'passwor
 
     $fullName = trim($_POST['full_name'] ?? '');
     $contact  = trim($_POST['contact_number'] ?? '');
+    $email    = trim($_POST['email'] ?? '');
+
+    $current      = get_user_by_id($pdo, $userId);
+    $emailChanged = $current && strcasecmp($email, $current['email']) !== 0;
 
     if ($fullName === '') {
         $errors[] = 'Full name cannot be empty.';
     }
 
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 150) {
+        $errors[] = 'Please enter a valid email address.';
+    } elseif ($emailChanged) {
+        if (email_in_use($pdo, $email, $userId)) {
+            $errors[] = 'That email address is already used by another account.';
+        } elseif (!verify_user_password($pdo, $userId, $_POST['email_current_password'] ?? '')) {
+            // Email is the login + password-reset address, so confirm identity first.
+            $errors[] = 'Enter your current password to change your email address.';
+        }
+    }
+
     if (empty($errors)) {
-        update_user_profile($pdo, $userId, $fullName, $contact);
-        $_SESSION['full_name'] = $fullName; // keep sidebar greeting in sync
-        $saved = true;
+        try {
+            update_user_profile($pdo, $userId, $fullName, $contact, $emailChanged ? $email : null);
+            $_SESSION['full_name'] = $fullName; // keep sidebar greeting in sync
+            $saved = true;
+        } catch (PDOException $e) {
+            if ($e->getCode() === '23000') {
+                $errors[] = 'That email address is already used by another account.';
+            } else {
+                throw $e;
+            }
+        }
     }
 }
 
@@ -105,10 +128,19 @@ $activeNav = 'profile';
         </div>
       </div>
 
-      <div class="form-group">
-        <label>Email (cannot be changed here)</label>
-        <input type="text" value="<?= htmlspecialchars($user['email']) ?>" disabled>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <input type="email" id="email" name="email" required maxlength="150" autocomplete="email"
+                 data-original="<?= htmlspecialchars($user['email']) ?>"
+                 value="<?= htmlspecialchars($_SERVER['REQUEST_METHOD'] === 'POST' && !$saved && isset($_POST['email']) && ($_POST['form'] ?? '') !== 'password' ? $_POST['email'] : $user['email']) ?>">
+        </div>
+        <div class="form-group" id="emailPasswordGroup" style="display:none;">
+          <label for="email_current_password">Current Password</label>
+          <input type="password" id="email_current_password" name="email_current_password" autocomplete="current-password">
+        </div>
       </div>
+      <p class="muted-note" style="margin-top:0;">This is the email you log in with and where password reset links are sent. Changing it requires your current password.</p>
 
       <button type="submit" class="btn-full" style="max-width:220px;">Save Changes</button>
     </form>
@@ -193,5 +225,21 @@ $activeNav = 'profile';
 </div>
 
 <script src="<?= base_url('assets/js/dashboard.js') ?>"></script>
+<script>
+// Show the "current password" box only when the email has been edited.
+(function () {
+  var email = document.getElementById('email');
+  var group = document.getElementById('emailPasswordGroup');
+  var pw = document.getElementById('email_current_password');
+  if (!email || !group) return;
+  function sync() {
+    var changed = email.value.trim().toLowerCase() !== email.dataset.original.toLowerCase();
+    group.style.display = changed ? '' : 'none';
+    pw.required = changed;
+  }
+  email.addEventListener('input', sync);
+  sync();
+})();
+</script>
 </body>
 </html>

@@ -296,17 +296,45 @@ function delete_farm_lot(PDO $pdo, int $lotId): void
     $stmt->execute(['id' => $lotId]);
 }
 
-/** Update a user's own editable profile fields (name, contact — NOT role/status/land data). */
-function update_user_profile(PDO $pdo, int $userId, string $fullName, ?string $contactNumber): void
+/**
+ * Update a user's own editable profile fields (name, contact, optionally email —
+ * NOT role/status/land data). Pass $email = null to leave the email untouched.
+ *
+ * Throws PDOException (SQLSTATE 23000) if the email collides with another
+ * account's UNIQUE email; callers should check email_in_use() first for a
+ * friendly message and treat this as the race-condition fallback.
+ */
+function update_user_profile(PDO $pdo, int $userId, string $fullName, ?string $contactNumber, ?string $email = null): void
 {
-    $stmt = $pdo->prepare(
-        'UPDATE users SET full_name = :full_name, contact_number = :contact_number WHERE user_id = :id'
-    );
-    $stmt->execute([
+    $sql = 'UPDATE users SET full_name = :full_name, contact_number = :contact_number'
+         . ($email !== null ? ', email = :email' : '')
+         . ' WHERE user_id = :id';
+    $params = [
         'full_name'      => $fullName,
         'contact_number' => $contactNumber ?: null,
         'id'             => $userId,
-    ]);
+    ];
+    if ($email !== null) {
+        $params['email'] = $email;
+    }
+    $pdo->prepare($sql)->execute($params);
+}
+
+/** True if another account (not $excludeUserId) already uses this email. */
+function email_in_use(PDO $pdo, string $email, int $excludeUserId = 0): bool
+{
+    $stmt = $pdo->prepare('SELECT 1 FROM users WHERE email = :email AND user_id <> :id LIMIT 1');
+    $stmt->execute(['email' => $email, 'id' => $excludeUserId]);
+    return (bool) $stmt->fetchColumn();
+}
+
+/** Checks a user's password without changing anything (used to confirm sensitive edits). */
+function verify_user_password(PDO $pdo, int $userId, string $password): bool
+{
+    $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE user_id = :id');
+    $stmt->execute(['id' => $userId]);
+    $row = $stmt->fetch();
+    return $row && password_verify($password, $row['password_hash']);
 }
 
 /**

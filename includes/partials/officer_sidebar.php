@@ -2,12 +2,20 @@
 /**
  * Officer sidebar partial.
  * Expects $activeNav to be set by the including page to one of:
- * 'dashboard', 'profile', 'members', 'sectors', 'boundaries', 'billing', 'schedules', 'machinery', 'map'
+ * 'dashboard', 'profile', 'members', 'sectors', 'boundaries', 'billing', 'schedules', 'machinery', 'reservations', 'map'
  * Renders: mobile topbar + overlay + the sidebar drawer itself.
  * The including page must open <div class="dash-shell"> before including
  * this, and close it (plus <main class="dash-main">) after.
+ *
+ * Pending-reservation badge: computed here (not passed in by the
+ * including page) so every officer page shows an up-to-date count without
+ * each page needing to remember to calculate and pass it along.
+ * includes/machinery.php is require_once'd here for the same reason —
+ * not every page that includes this sidebar already loads it.
  */
+require_once __DIR__ . '/../machinery.php';
 $activeNav = $activeNav ?? '';
+$pendingReservationCount = isset($pdo) ? count_reservations($pdo, 'pending') : 0;
 ?>
 <div class="dash-topbar">
   <div class="brand">🌾 BAMBOSA</div>
@@ -71,7 +79,16 @@ $activeNav = $activeNav ?? '';
 	<svg version="1.1" id="mdi-tractor" fill="white" width="24" height="24" viewBox="0 0 24 24">
 	  <path d="M5,4V11.26C3.2,11.9 2,13.6 2,15.5C2,18 4,20 6.5,20C8.79,20 10.71,18.28 10.97,16H15.17C15.06,16.32 15,16.66 15,17A3,3 0 0,0 18,20A3,3 0 0,0 21,17C21,16.66 20.94,16.32 20.82,16H22V13C22,11.89 21.11,11 20,11H15.04L13.65,4H5M7,6H12L13,11V14H10.74C10.16,12.38 8.71,11.23 7,11.03V6M6.5,13.25A2.25,2.25 0 0,1 8.75,15.5A2.25,2.25 0 0,1 6.5,17.75A2.25,2.25 0 0,1 4.25,15.5A2.25,2.25 0 0,1 6.5,13.25M18,15.5A1.5,1.5 0 0,1 19.5,17A1.5,1.5 0 0,1 18,18.5A1.5,1.5 0 0,1 16.5,17A1.5,1.5 0 0,1 18,15.5Z" />
 	</svg>
-	<span>Machinery Reservation</span>
+	<span>Machinery Inventory</span>
+  </a>
+  <a href="<?= base_url('officer/reservations.php') ?>" class="<?= $activeNav === 'reservations' ? 'active' : '' ?>">
+	<svg version="1.1" id="mdi-clipboard-list-outline" fill="white" width="24" height="24" viewBox="0 0 24 24">
+	  <path d="M19,3H14.82C14.4,1.84 13.3,1 12,1C10.7,1 9.6,1.84 9.18,3H5C3.9,3 3,3.9 3,5V19C3,20.1 3.9,21 5,21H19C20.1,21 21,20.1 21,19V5C21,3.9 20.1,3 19,3M12,3C12.55,3 13,3.45 13,4C13,4.55 12.55,5 12,5C11.45,5 11,4.55 11,4C11,3.45 11.45,3 12,3M7,7H17V9H7V7M7,11H17V13H7V11M7,15H14V17H7V15Z" />
+	</svg>
+	<span>Reservation Requests</span>
+	<?php if ($pendingReservationCount > 0): ?>
+	  <span class="nav-badge"><?= $pendingReservationCount > 99 ? '99+' : $pendingReservationCount ?></span>
+	<?php endif; ?>
   </a>
   <a href="<?= base_url('officer/map.php') ?>" class="<?= $activeNav === 'map' ? 'active' : '' ?>">
 	<svg version="1.1" id="mdi-map" fill="white" width="24" height="24" viewBox="0 0 24 24">

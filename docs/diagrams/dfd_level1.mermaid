@@ -1,0 +1,83 @@
+flowchart TB
+    Member(["Member"])
+    Officer(["Officer"])
+    SMTP(["SMTP Email Server"])
+    OSM(["OpenStreetMap / Map Tiles"])
+
+    P1["1.0<br/>Authentication &amp;<br/>Account Management"]
+    P2["2.0<br/>Member &amp; Farm Lot<br/>Management"]
+    P3["3.0<br/>Sector &amp; Boundary<br/>Management"]
+    P4["4.0<br/>Machinery Reservation<br/>Management"]
+    P5["5.0<br/>Rotation Scheduling"]
+    P6["6.0<br/>ISF Billing &amp;<br/>Payment Processing"]
+    P7["7.0<br/>Dashboard &amp; Calendar<br/>Reporting"]
+
+    D1[("D1 users")]
+    D2[("D2 password_resets /<br/>login_logs")]
+    D3[("D3 farm_lots")]
+    D4[("D4 sectors /<br/>sector_auto_assignments")]
+    D5[("D5 machinery /<br/>machinery_reservations")]
+    D6[("D6 rotation_schedules")]
+    D7[("D7 billing_periods /<br/>isf_bills / isf_payments")]
+
+    %% ---- Authentication ----
+    Member -- "signup form, login,<br/>forgot/reset password" --> P1
+    Officer -- "login, approve/activate member" --> P1
+    P1 -- "session, validation errors,<br/>reset confirmation" --> Member
+    P1 -- "session, member list w/ status" --> Officer
+    P1 <--> D1
+    P1 <--> D2
+    P1 -- "reset link / activation email" --> SMTP
+    SMTP -- "send result" --> P1
+
+    %% ---- Member & Farm Lot ----
+    Officer -- "add/edit member farm lot,<br/>polygon boundary, land area" --> P2
+    P2 -- "farm lot records, totals" --> Officer
+    Member -- "view own profile &amp; lots" --> P2
+    P2 -- "read-only lot list" --> Member
+    P2 <--> D3
+    P2 -- "checks sector match" --> P3
+
+    %% ---- Sector & Boundary ----
+    Officer -- "draw/edit sector boundary" --> P3
+    P3 -- "sector list, boundary preview,<br/>auto-assignment result" --> Officer
+    P3 <--> D4
+    P3 <--> D3
+
+    %% ---- Machinery Reservation ----
+    Member -- "reservation request" --> P4
+    P4 -- "reservation status,<br/>conflict warning" --> Member
+    Officer -- "manage equipment,<br/>approve/reject/cancel" --> P4
+    P4 -- "reservation queue,<br/>equipment list" --> Officer
+    P4 <--> D5
+
+    %% ---- Rotation Scheduling ----
+    Officer -- "create/edit schedule<br/>(single or multi-sector)" --> P5
+    P5 -- "schedule list, conflict badge" --> Officer
+    Member -- "view sector's schedule" --> P5
+    P5 -- "upcoming release windows" --> Member
+    P5 <--> D6
+
+    %% ---- ISF Billing ----
+    Officer -- "open billing period,<br/>generate bills, record payment" --> P6
+    P6 -- "bills list, payment history,<br/>outstanding balance" --> Officer
+    Member -- "view own bills" --> P6
+    P6 -- "bill status, amount due" --> Member
+    P6 <--> D7
+    P6 -- "reads land area per lot" --> D3
+
+    %% ---- Dashboard & Calendar ----
+    Member -- "requests dashboard/calendar" --> P7
+    Officer -- "requests dashboard/calendar" --> P7
+    P7 -- "stat cards, month calendar<br/>(schedules + reservations)" --> Member
+    P7 -- "stat cards, month calendar<br/>(all sectors + all reservations)" --> Officer
+    P7 -- "reads" --> D3
+    P7 -- "reads" --> D5
+    P7 -- "reads" --> D6
+    P7 -- "reads" --> D7
+
+    %% ---- Map tiles used by farm/sector maps ----
+    P2 -- "tile requests" --> OSM
+    P3 -- "tile requests" --> OSM
+    OSM -- "map tiles" --> P2
+    OSM -- "map tiles" --> P3

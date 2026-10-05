@@ -297,6 +297,47 @@ footer.site-footer {
   opacity: 0.6;
 }
 
+/* ---------- Machinery condition/damage slider ---------- */
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.slider-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--clr-primary);
+}
+
+.slider-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--clr-text);
+  white-space: nowrap;
+  min-width: 90px;
+  text-align: right;
+}
+
+.condition-bar {
+  width: 100%;
+  max-width: 160px;
+  height: 8px;
+  border-radius: 4px;
+  background: #e4ece6;
+  overflow: hidden;
+  margin-bottom: 0.25rem;
+}
+
+.condition-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.condition-bar-fill.condition-low { background: #2e9c5c; }
+.condition-bar-fill.condition-moderate { background: #d99a1b; }
+.condition-bar-fill.condition-severe { background: var(--clr-error); }
+
 .btn-full {
   width: 100%;
   padding: 0.85rem;
@@ -461,6 +502,18 @@ footer.site-footer {
   width: 24px;
   height: 24px;
   flex: 0 0 24px;
+}
+
+.nav-badge {
+  margin-left: auto;
+  background: var(--clr-error, #c0392b);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.28rem 0.5rem;
+  border-radius: 999px;
+  flex: 0 0 auto;
 }
 
 
@@ -777,7 +830,7 @@ footer.site-footer {
 .muted-note {
   color: var(--clr-muted);
   font-size: 0.88rem;
-  margin-top: -0.3rem;
+  margin-top: 0.8rem;
 }
 
 .search-form {
@@ -903,10 +956,14 @@ footer.site-footer {
 
 .data-table {
   width: 100%;
-  border-collapse: collapse;
+  /* "separate" + 0 spacing: every cell paints its own bottom border inside its
+     own box, so row lines stay continuous and aligned whatever the cell
+     heights are (collapsed borders get clipped/misaligned by overflow:hidden
+     and sub-pixel row heights). Corner rounding is handled by .table-scroll. */
+  border-collapse: separate;
+  border-spacing: 0;
   background: var(--clr-surface);
   border-radius: var(--radius);
-  overflow: hidden;
   box-shadow: var(--shadow);
   font-size: 0.9rem;
 }
@@ -919,13 +976,16 @@ footer.site-footer {
   -webkit-overflow-scrolling: touch;
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  background: var(--clr-surface);
 }
-.table-scroll .data-table { box-shadow: none; }
+.table-scroll .data-table { box-shadow: none; border-radius: 0; }
 
 .data-table th,
 .data-table td {
   padding: 0.75rem 1rem;
   text-align: left;
+  vertical-align: middle;
+  line-height: 1.4;
   border-bottom: 1px solid var(--clr-border);
 }
 
@@ -959,11 +1019,26 @@ footer.site-footer {
 .status-pending  { background: #fff6e0; color: #a3730b; }
 .status-inactive { background: #fdecea; color: #c0392b; }
 
-.actions-cell {
-  display: flex;
-  gap: 0.7rem;
-  align-items: center;
-  flex-wrap: wrap;
+/* Keep this a real table-cell (no display:flex) so its bottom border spans the
+   full row height and lines up with neighbouring cells, however tall they are. */
+.data-table td.actions-cell {
+  display: table-cell;
+  white-space: nowrap;
+}
+.data-table td.actions-cell > * {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 0.7rem 0 0;
+}
+.data-table td.actions-cell > *:last-child { margin-right: 0; }
+.data-table td.actions-cell > form.inline-form { display: inline-block; }
+/* Helper text inside cells must not push the cell content down */
+.data-table .muted-note { margin-top: 0; }
+.data-table .condition-bar { margin: 0 0 0.25rem; }
+.data-table td.actions-cell .link-btn {
+  font-family: inherit;
+  line-height: inherit;
+  vertical-align: middle;
 }
 
 .link-btn {

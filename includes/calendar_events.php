@@ -98,9 +98,10 @@ function get_reservation_events_for_month(PDO $pdo, int $year, int $month, ?int 
     $monthEnd = date('Y-m-d', strtotime($monthStart . ' +1 month -1 day'));
 
     $sql = "SELECT r.reservation_id, r.start_date, r.end_date, r.purpose, r.status,
-                   m.name AS machinery_name, u.full_name AS requester_name
+                   m.name AS machinery_name, g.group_name, u.full_name AS requester_name
             FROM machinery_reservations r
-            JOIN machinery m ON m.machinery_id = r.machinery_id
+            LEFT JOIN machinery m ON m.machinery_id = r.machinery_id
+            LEFT JOIN machinery_groups g ON g.group_id = r.group_id
             JOIN users u ON u.user_id = r.user_id
             WHERE r.status IN ('pending', 'approved')
               AND r.start_date <= :month_end AND r.end_date >= :month_start";
@@ -125,7 +126,12 @@ function get_reservation_events_for_month(PDO $pdo, int $year, int $month, ?int 
 
     $events = [];
     foreach ($rows as $row) {
-        $label = $row['machinery_name'] . ($userId === null ? ' — ' . $row['requester_name'] : '');
+        // A group-targeted request has no machine assigned yet
+        // (machinery_name is NULL) until an officer approves it — fall
+        // back to the group's name so it still shows up on the calendar
+        // instead of silently disappearing or displaying a blank label.
+        $machineLabel = $row['machinery_name'] ?? ($row['group_name'] ? $row['group_name'] . ' (pool)' : 'Machinery');
+        $label = $machineLabel . ($userId === null ? ' — ' . $row['requester_name'] : '');
         $events = array_merge($events, expand_event_across_days(
             $row['start_date'],
             $row['end_date'],
@@ -134,7 +140,7 @@ function get_reservation_events_for_month(PDO $pdo, int $year, int $month, ?int 
             [
                 'type'   => 'reservation',
                 'title'  => $label,
-                'detail' => $row['machinery_name']
+                'detail' => $machineLabel
                     . ($userId === null ? ' reserved by ' . $row['requester_name'] : ' reservation')
                     . ($row['purpose'] ? ' — ' . $row['purpose'] : '')
                     . ' (' . $row['status'] . ')',

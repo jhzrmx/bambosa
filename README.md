@@ -59,15 +59,18 @@ bambosa/
 │   ├── sector_boundary_preview.php    # AJAX: live "N farm lots would match" preview while drawing
 │   ├── billing_periods.php             # Open/edit/close/delete billing periods
 │   ├── billing_period_view.php          # Generate bills, view/filter bills, record payments
-│   ├── machinery.php                     # Manage machinery list (add/edit/delete/availability)
-│   ├── reservations.php                   # Approve/reject/cancel member reservation requests
+│   ├── machinery.php                     # Manage machinery list (add/edit/delete/availability/group/damage)
+│   ├── machinery_groups.php               # Manage machinery groups (pools of interchangeable equipment)
+│   ├── reservations.php                   # Approve/reject (with remark)/cancel member reservation requests
+│   ├── reservation_assign.php              # Pick a specific unit to assign + approve a group-targeted request
 │   ├── schedules.php                       # Create/edit/delete water rotation schedule entries
 │   └── map.php                              # All members' farm lots + sector boundaries on a Leaflet map
 ├── member/
 │   ├── dashboard.php           # Protected — role must be 'member'
 │   ├── profile.php              # Edit own name/contact/password; view (read-only) farm lots
 │   ├── billing.php               # View own ISF bills + payment history across all periods
-│   ├── machinery.php              # Request a reservation; view own reservation history
+│   ├── machinery.php              # Request a reservation (equipment pool or standalone machine)
+│   ├── machinery_history.php       # Own reservation history + equipment condition reference (search + pagination)
 │   ├── schedule.php                # View upcoming water rotation for own sector + all sectors
 │   └── map.php                      # View own farm lot(s) plotted on a Leaflet map
 ├── assets/
@@ -88,8 +91,15 @@ bambosa/
 │   │   ├── 003_farm_lot_polygons.sql  # Adds farm_lots.boundary_geojson to an EXISTING db
 │   │   ├── 004_schedule_groups.sql     # Adds rotation_schedules.group_id to an EXISTING db
 │   │   ├── 005_password_resets.sql      # Adds the password_resets table to an EXISTING db
+│   │   ├── 006_machinery_groups.sql      # Adds machinery_groups, damage_level, group-targeted reservations to an EXISTING db
 │   │   └── .htaccess
 │   └── .htaccess
+├── docs/
+│   └── diagrams/
+│       ├── README.md            # How to view/edit these + when to update them
+│       ├── erd.mermaid            # Entity-Relationship Diagram (Mermaid source)
+│       ├── dfd_level0.mermaid      # Level 0 / Context Data Flow Diagram
+│       └── dfd_level1.mermaid      # Level 1 Data Flow Diagram (7 major processes)
 └── serve.bat                  # Windows convenience script — runs `php -S localhost:8000`
                                 # from the project root; checks PHP is on PATH first
 ```
@@ -146,6 +156,10 @@ only replaces Apache, not the database.
      `rotation_schedules`.
    - `sql/migrations/005_password_resets.sql` — creates the
      `password_resets` table.
+   - `sql/migrations/006_machinery_groups.sql` — creates
+     `machinery_groups`, adds `group_id`/`damage_level` to `machinery`,
+     and adds `group_id`/`rejection_remark` to `machinery_reservations`
+     (also makes that table's `machinery_id` nullable).
 3. None of this touches data you already have in `users`, `farm_lots`,
    `sectors`, etc. All migrations are safe to re-run if you're ever unsure
    whether one was already applied (`CREATE TABLE IF NOT EXISTS` throughout,
@@ -464,25 +478,142 @@ for them:
   "Farm Lot Polygons" below for the full writeup of how that works and why
   there's no separate point-picker or coordinate fields anymore.
 
-## Machinery Reservation System (implemented — simplified version)
+## Machinery Reservation System (implemented — revised: machinery groups, stock-aware approval, damage tracking)
 
-- `machinery` table holds the equipment list (name, description, available flag).
-- `machinery_reservations` holds member requests against a date range with a
-  `pending → approved/rejected` (or `cancelled`) status flow.
-- **Officers** manage the equipment list (`officer/machinery.php`) and review/
-  approve/reject/cancel requests (`officer/reservations.php`).
-- **Members** submit requests and view their own reservation history
-  (`member/machinery.php`).
-- `has_overlapping_reservation()` in `includes/machinery.php` does a simple
-  date-range overlap check and shows the *member* a warning at request time.
-  `officer/reservations.php` re-runs the same check per row and shows a
-  "⚠ Overlap" badge next to any pending/approved reservation that overlaps
-  another pending/approved reservation for the same machine, so the officer
-  sees it too, right where they approve/reject — not just at request time.
-  It does **not** block submission or auto-block officer approval — the
-  officer always makes the final call. This is the "flag, don't block"
-  version; a stricter conflict-prevention engine that hard-blocks
-  double-booking could be layered on later if ever needed.
+- `machinery_groups` table: pools of interchangeable equipment (e.g.
+  "Hand Tractors"). `machinery.group_id` (nullable) optionally assigns a
+  machine to one. `machinery.damage_level` (0-100) is an officer-set
+  condition slider, visible to members before they request equipment.
+- `machinery_reservations` holds member requests with a
+  `pending → approved/rejected` (or `cancelled`) status flow, plus a
+  required `rejection_remark` whenever a request is rejected.
+
+### Why machinery groups exist (client feedback)
+
+Before this revision, a member reserved one *specific* machine. If the
+association owned several interchangeable units of the same equipment
+(three hand tractors, say) and a member happened to pick the one that was
+already booked, the officer's only option was to reject the whole
+request — even though a sibling tractor sat free the entire time —
+forcing the member to resubmit and guess again. Machinery groups fix
+this:
+
+- **A member reserves a GROUP, not a specific unit.** The reservation
+  form (`member/machinery.php`) shows machinery **pools** ("Hand
+  Tractors — 2 units available") alongside any standalone, ungrouped
+  machines reserved directly as before. Grouping is opt-in per machine —
+  a machine with no group behaves exactly as it always did.
+- **A group only appears on the form if at least one unit in it is
+  currently marked available.** A group where every unit is broken
+  down/unavailable is hidden entirely rather than shown with nothing
+  bookable in it, per the client's request.
+  (`get_available_machinery_groups()` in `includes/machinery.php`.)
+- **An officer assigns the specific unit at approval time**, not the
+  member at request time. Approving a group-targeted request
+  (`officer/reservations.php` → "Assign & Approve") opens
+  `officer/reservation_assign.php`, which lists every unit in that group
+  that's both marked available AND has no overlapping pending/approved
+  reservation for the requested dates — an officer picks one, and that
+  choice becomes the reservation's actual `machinery_id`.
+- **If a group is fully booked for the requested dates, approval is
+  disabled entirely** — the reservations list shows a "No stock
+  available" badge and swaps the Approve action for a plain note; the
+  only remaining action is **Reject, with a required remark**, per the
+  client's explicit instruction. This is enforced both in the UI and in
+  `assign_and_approve_reservation()` itself (which re-validates
+  availability at the moment of submission, not just when the page
+  loaded, in case another request got approved first).
+- **Standalone (ungrouped) machines are unaffected** — a request against
+  one still goes straight to a direct Approve/Reject on the reservations
+  list, no assignment step, exactly as before this feature existed.
+
+### Damage / condition tracking
+
+- Every machine has a `damage_level` (0-100, 0 = pristine, 100 = fully
+  damaged), edited via a slider on `officer/machinery.php`'s add/edit
+  form. A small color-coded condition bar (green under 34%, amber 34-66%,
+  red 67%+ — `damage_severity_class()` in `includes/machinery.php`) shows
+  it consistently everywhere it appears: the officer's machinery list,
+  the unit-assignment page, and a dedicated "Equipment Condition"
+  reference table on the member reservation form — so members can see a
+  machine's condition before requesting it, per the client's request.
+
+### Rejection remarks
+
+- `machinery_reservations.rejection_remark` is required (enforced in
+  `officer/reservations.php`) whenever a request is rejected — a plain
+  status change to "rejected" with no explanation isn't accepted. The
+  remark is shown to the member on their own reservation history
+  (`member/machinery_history.php`) so they know why, and to the officer
+  inline on the reservations list.
+
+### Conflict/overlap detection (unchanged in spirit, extended to groups)
+
+- `has_overlapping_reservation()` in `includes/machinery.php` does the
+  same simple date-range overlap check as before, for a specific machine.
+  `get_available_machinery_in_group()` is the group-aware equivalent —
+  used both as a soft heads-up when a member submits a group request
+  (informational only; the request still goes in as pending, since more
+  units could free up before it's reviewed) and as the hard gate at
+  approval time described above.
+- This remains "flag, don't block" at request time — the officer always
+  makes the final call — but approval of an already-fully-booked group is
+  now a genuine hard block, not just a flag, per the client's requirement.
+
+### UI refinements (client feedback round 2)
+
+- **Sidebar relabeled.** "Machinery Reservation" is now **"Machinery
+  Inventory"** — it manages a list of equipment, not reservations
+  themselves, so the old label was describing the wrong thing.
+- **"Reservation Requests" is now its own sidebar item**, with a red badge
+  showing the current pending-request count (hidden entirely when it's
+  zero, capped at displaying "99+"). It links straight to
+  `officer/reservations.php`, which previously had no sidebar entry of
+  its own — it was only reachable via a text link from the machinery
+  page, which is also why that text link ("See reservation requests to
+  approve or reject bookings") was removed from
+  `officer/machinery.php` once the sidebar made it redundant. The count
+  is computed inside `includes/partials/officer_sidebar.php` itself
+  (`count_reservations($pdo, 'pending')`), not passed in by each page, so
+  every officer page shows an accurate badge without needing to remember
+  to calculate one.
+- **Table header clarity.** The machinery list's "Group" column is now
+  **"Type/Group"**, since not every machine belongs to a group and the
+  original label read oddly for standalone equipment.
+- **Standalone machinery relabeled for clarity.** The member reservation
+  form's dropdown already listed ungrouped machines (it always could be
+  reserved directly) under an "Individual machines" heading, next to
+  "Equipment pools" — just worded in a way that made it easy to miss.
+  That heading is now **"Standalone Machinery"**, matching the
+  "Type/Group" terminology used elsewhere, so it reads as a parallel
+  option to equipment pools rather than an easily-overlooked afterthought.
+- **Reservation history + equipment condition moved to their own page**
+  (`member/machinery_history.php`), reachable via a new "Reservation
+  History" sidebar item, so `member/machinery.php` (Reserve Machinery)
+  stays focused on just submitting a new request. Both tables on the new
+  page have independent search and pagination — searching or paging
+  through one never disturbs the other's current state, via separate
+  query params (`?q=`/`?page=` for reservation history, `?cq=`/`?cpage=`
+  for equipment condition). This required extending
+  `render_search_box()`/`render_pagination_controls()` in
+  `includes/pagination.php` with an optional parameter-name override
+  (defaulting to the original `q`/`page`, so every other existing call
+  site across the app needed zero changes) and adding
+  `count_reservations_by_user()` alongside an extended
+  `get_reservations_by_user()` that now supports the same
+  search/pagination pattern as `get_all_reservations()`.
+
+### Migration note
+
+`sql/migrations/006_machinery_groups.sql` adds `machinery_groups`,
+`machinery.group_id`/`damage_level`, and
+`machinery_reservations.group_id`/`rejection_remark` (plus makes
+`machinery_id` nullable there) for an existing database — already
+included in `sql/bambosa_db.sql` for a fresh install. Every existing
+machine and reservation is completely unaffected: they default to
+`group_id = NULL` / `damage_level = 0`, exactly the pre-existing
+standalone behavior, until an officer actually creates a group and
+assigns machines to it.
 
 ## Rotation Scheduling — basic viewer (implemented — simplified version)
 

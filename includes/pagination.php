@@ -65,9 +65,17 @@ function build_pagination(int $totalRows, int $currentPage, int $perPage = PAGIN
  * Renders a "Showing X-Y of Z" + prev/next/page-number nav.
  * $baseUrl should already be run through base_url() and include any
  * filters/search that must be preserved (e.g. 'officer/members.php?status=active&q=juan').
- * Page links are appended as &page=N (or ?page=N if $baseUrl has no query string yet).
+ * Page links are appended as &{$pageParam}=N (or ?{$pageParam}=N if
+ * $baseUrl has no query string yet).
+ *
+ * $pageParam: override the query param name used for page links. Only
+ * needed when a single page hosts two independent paginated tables (e.g.
+ * member/machinery_history.php's reservation history AND equipment
+ * condition tables) — paginating one must not disturb the other's
+ * current page. Must match the $param passed to get_current_page() for
+ * the pagination this is rendering.
  */
-function render_pagination_controls(array $pagination, string $baseUrl): void
+function render_pagination_controls(array $pagination, string $baseUrl, string $pageParam = 'page'): void
 {
     if ($pagination['total_pages'] <= 1 && $pagination['total_rows'] <= $pagination['per_page']) {
         return;
@@ -86,7 +94,7 @@ function render_pagination_controls(array $pagination, string $baseUrl): void
       </div>
       <div class="pagination-links">
         <?php if ($current > 1): ?>
-          <a href="<?= htmlspecialchars($baseUrl . $sep . 'page=' . ($current - 1)) ?>" class="page-link">&larr; Prev</a>
+          <a href="<?= htmlspecialchars($baseUrl . $sep . $pageParam . '=' . ($current - 1)) ?>" class="page-link">&larr; Prev</a>
         <?php else: ?>
           <span class="page-link disabled">&larr; Prev</span>
         <?php endif; ?>
@@ -99,21 +107,21 @@ function render_pagination_controls(array $pagination, string $baseUrl): void
         ?>
 
         <?php if ($windowStart > 1): ?>
-          <a href="<?= htmlspecialchars($baseUrl . $sep . 'page=1') ?>" class="page-link">1</a>
+          <a href="<?= htmlspecialchars($baseUrl . $sep . $pageParam . '=1') ?>" class="page-link">1</a>
           <?php if ($windowStart > 2): ?><span class="page-ellipsis">&hellip;</span><?php endif; ?>
         <?php endif; ?>
 
         <?php for ($p = $windowStart; $p <= $windowEnd; $p++): ?>
-          <a href="<?= htmlspecialchars($baseUrl . $sep . 'page=' . $p) ?>" class="page-link <?= $p === $current ? 'active' : '' ?>"><?= $p ?></a>
+          <a href="<?= htmlspecialchars($baseUrl . $sep . $pageParam . '=' . $p) ?>" class="page-link <?= $p === $current ? 'active' : '' ?>"><?= $p ?></a>
         <?php endfor; ?>
 
         <?php if ($windowEnd < $total): ?>
           <?php if ($windowEnd < $total - 1): ?><span class="page-ellipsis">&hellip;</span><?php endif; ?>
-          <a href="<?= htmlspecialchars($baseUrl . $sep . 'page=' . $total) ?>" class="page-link"><?= $total ?></a>
+          <a href="<?= htmlspecialchars($baseUrl . $sep . $pageParam . '=' . $total) ?>" class="page-link"><?= $total ?></a>
         <?php endif; ?>
 
         <?php if ($current < $total): ?>
-          <a href="<?= htmlspecialchars($baseUrl . $sep . 'page=' . ($current + 1)) ?>" class="page-link">Next &rarr;</a>
+          <a href="<?= htmlspecialchars($baseUrl . $sep . $pageParam . '=' . ($current + 1)) ?>" class="page-link">Next &rarr;</a>
         <?php else: ?>
           <span class="page-link disabled">Next &rarr;</span>
         <?php endif; ?>
@@ -135,8 +143,16 @@ function render_pagination_controls(array $pagination, string $baseUrl): void
  *
  * $preserveParams: extra query params (name => value) to preserve as hidden
  * fields, e.g. ['status' => $statusFilter, 'id' => $periodId].
+ *
+ * $searchParam: override the query param name this search box submits as.
+ * Only needed when a single page hosts two independent searchable tables
+ * (e.g. member/machinery_history.php's reservation history AND equipment
+ * condition tables) — searching one must not disturb the other's current
+ * search term. Must match the $param passed to get_search_term() for the
+ * search this is rendering, and the page-reset link below is built to
+ * match (clearing this box's term, not the other table's).
  */
-function render_search_box(string $actionUrl, ?string $currentTerm, string $placeholder, array $preserveParams = []): void
+function render_search_box(string $actionUrl, ?string $currentTerm, string $placeholder, array $preserveParams = [], string $searchParam = 'q'): void
 {
     // Defensive: if a caller accidentally passes a URL with a query string,
     // move it into $preserveParams instead of silently losing it on submit.
@@ -147,7 +163,7 @@ function render_search_box(string $actionUrl, ?string $currentTerm, string $plac
         $actionUrl = substr($actionUrl, 0, $queryPos);
     }
 
-    // Build the "clear" link (bare action URL + preserved params, no q=).
+    // Build the "clear" link (bare action URL + preserved params, no search term).
     $clearParams = [];
     foreach ($preserveParams as $name => $value) {
         if ($value !== null && $value !== '') {
@@ -162,7 +178,7 @@ function render_search_box(string $actionUrl, ?string $currentTerm, string $plac
           <input type="hidden" name="<?= htmlspecialchars($name) ?>" value="<?= htmlspecialchars($value) ?>">
         <?php endif; ?>
       <?php endforeach; ?>
-      <input type="search" name="q" value="<?= htmlspecialchars($currentTerm ?? '') ?>" placeholder="<?= htmlspecialchars($placeholder) ?>" class="search-input">
+      <input type="search" name="<?= htmlspecialchars($searchParam) ?>" value="<?= htmlspecialchars($currentTerm ?? '') ?>" placeholder="<?= htmlspecialchars($placeholder) ?>" class="search-input">
       <button type="submit" class="search-btn">Search</button>
       <?php if ($currentTerm): ?>
         <a href="<?= htmlspecialchars($clearUrl) ?>" class="search-clear">Clear</a>

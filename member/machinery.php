@@ -15,14 +15,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reque
         $errors[] = 'Invalid form submission. Please try again.';
     }
 
-    $machineryId = (int) ($_POST['machinery_id'] ?? 0);
+    $machineChoice = $_POST['machine_choice'] ?? '';
     $startDate   = $_POST['start_date'] ?? '';
     $endDate     = $_POST['end_date'] ?? '';
     $purpose     = trim($_POST['purpose'] ?? '');
 
     $today = date('Y-m-d');
 
-    if ($machineryId <= 0) {
+    $groupId = null;
+    $machineryId = null;
+    if (preg_match('/^group:(\d+)$/', $machineChoice, $matches)) {
+        $groupId = (int) $matches[1];
+    } elseif (preg_match('/^machine:(\d+)$/', $machineChoice, $matches)) {
+        $machineryId = (int) $matches[1];
+    }
+
+    if ($groupId === null && $machineryId === null) {
         $errors[] = 'Please select a machine.';
     }
     if (!$startDate || !$endDate) {
@@ -34,20 +42,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reque
     }
 
     if (empty($errors)) {
-        if (has_overlapping_reservation($pdo, $machineryId, $startDate, $endDate)) {
-            // Not a hard block — just an informational warning, since the
-            // officer makes the final approval call.
-            $conflictWarning = 'Heads up: this machine already has a pending or approved reservation that overlaps your requested dates. You can still submit — the officer will review availability.';
+        if ($groupId !== null) {
+            // Every group shown on this form already has at least one
+            // available unit in general (see get_available_machinery_groups()
+            // below) — but that doesn't guarantee one is free for THESE
+            // specific dates. This is just an informational heads-up, same
+            // spirit as the old single-machine overlap warning: the request
+            // still goes in as pending either way, since more units could
+            // free up (or the officer may know something this quick check
+            // doesn't) before it's reviewed. The hard stop is later, at
+            // approval time — see officer/reservation_assign.php — where an
+            // officer literally cannot approve a group with zero free units
+            // for the requested dates.
+            if (empty(get_available_machinery_in_group($pdo, $groupId, $startDate, $endDate))) {
+                $conflictWarning = 'Heads up: every unit of this machine type already has a pending or approved reservation that overlaps your requested dates. You can still submit — the officer will review availability, but approval may not be possible unless something opens up.';
+            }
+            create_reservation($pdo, null, $groupId, $userId, $startDate, $endDate, $purpose);
+        } else {
+            if (has_overlapping_reservation($pdo, $machineryId, $startDate, $endDate)) {
+                $conflictWarning = 'Heads up: this machine already has a pending or approved reservation that overlaps your requested dates. You can still submit — the officer will review availability.';
+            }
+            create_reservation($pdo, $machineryId, null, $userId, $startDate, $endDate, $purpose);
         }
 
-        create_reservation($pdo, $machineryId, $userId, $startDate, $endDate, $purpose);
         header('Location: ' . base_url('member/machinery.php?flash=requested'));
         exit;
     }
 }
 
-$machineryList = get_all_machinery($pdo, true); // only available equipment
-$myReservations = get_reservations_by_user($pdo, $userId);
+$machineryGroups = get_available_machinery_groups($pdo); // groups with at least one available unit
+$standaloneMachinery = get_all_machinery($pdo, true); // available, ungrouped machines only
+$standaloneMachinery = array_values(array_filter($standaloneMachinery, fn($m) => $m['group_id'] === null));
 $flash = $_GET['flash'] ?? null;
 $activeNav = 'machinery';
 ?>
@@ -86,7 +111,7 @@ $activeNav = 'machinery';
 
     <h2 class="section-heading">New Reservation Request</h2>
 
-    <?php if (empty($machineryList)): ?>
+    <?php if (empty($machineryGroups) && empty($standaloneMachinery)): ?>
       <p class="muted-note">No machinery is currently available for reservation.</p>
     <?php else: ?>
       <form method="POST" action="<?= base_url('member/machinery.php') ?>" class="inline-card-form">
@@ -94,13 +119,31 @@ $activeNav = 'machinery';
         <input type="hidden" name="action" value="request">
 
         <div class="form-group">
-          <label for="machinery_id">Machine</label>
-          <select id="machinery_id" name="machinery_id" required>
+          <label for="machine_choice">Machine</label>
+          <select id="machine_choice" name="machine_choice" required>
             <option value="">— Select —</option>
-            <?php foreach ($machineryList as $m): ?>
-              <option value="<?= (int) $m['machinery_id'] ?>"><?= htmlspecialchars($m['name']) ?></option>
-            <?php endforeach; ?>
+            <?php if (!empty($machineryGroups)): ?>
+              <optgroup label="Equipment pools (any available unit)">
+                <?php foreach ($machineryGroups as $g): ?>
+                  <option value="group:<?= (int) $g['group_id'] ?>">
+                    <?= htmlspecialchars($g['group_name']) ?> (<?= (int) $g['available_count'] ?> unit<?= $g['available_count'] === 1 ? '' : 's' ?> available)
+                  </option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
+            <?php if (!empty($standaloneMachinery)): ?>
+              <optgroup label="Standalone Machinery">
+                <?php foreach ($standaloneMachinery as $m): ?>
+                  <option value="machine:<?= (int) $m['machinery_id'] ?>"><?= htmlspecialchars($m['name']) ?></option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
           </select>
+          <p class="muted-note" style="margin:0.3rem 0 0;">
+            Equipment pools mean an officer will assign whichever specific unit is free
+            when reviewing your request — you don't need to guess which one. Standalone
+            machinery is reserved directly, since there's only one of that kind.
+          </p>
         </div>
 
         <div class="form-row">
@@ -123,32 +166,10 @@ $activeNav = 'machinery';
       </form>
     <?php endif; ?>
 
-    <h2 class="section-heading">My Reservation History</h2>
-
-    <div class="table-scroll">
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Machine</th>
-          <th>Dates</th>
-          <th>Purpose</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php if (empty($myReservations)): ?>
-          <tr><td colspan="4" class="empty-row">You haven't made any reservation requests yet.</td></tr>
-        <?php else: foreach ($myReservations as $r): ?>
-          <tr>
-            <td><?= htmlspecialchars($r['machinery_name']) ?></td>
-            <td><?= htmlspecialchars($r['start_date']) ?> &rarr; <?= htmlspecialchars($r['end_date']) ?></td>
-            <td><?= htmlspecialchars($r['purpose'] ?? '—') ?></td>
-            <td><span class="status-badge status-<?= $r['status'] === 'approved' ? 'active' : ($r['status'] === 'pending' ? 'pending' : 'inactive') ?>"><?= htmlspecialchars($r['status']) ?></span></td>
-          </tr>
-        <?php endforeach; endif; ?>
-      </tbody>
-    </table>
-    </div>
+    <p class="muted-note">
+      Want to check a machine's condition before requesting, or see your past requests?
+      Visit <a href="<?= base_url('member/machinery_history.php') ?>">Reservation History</a>.
+    </p>
   </main>
 </div>
 

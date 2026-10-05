@@ -1,0 +1,19 @@
+flowchart TB
+    Member(["Member"])
+    Officer(["Officer"])
+    SMTP(["SMTP Email Server"])
+    OSM(["OpenStreetMap / Map Tiles"])
+
+    System["0.0<br/>BAMBOSA<br/>Irrigation Management System"]
+
+    Member -- "signup info, login credentials,<br/>farm lot polygon, reservation requests,<br/>profile/password updates" --> System
+    System -- "dashboard data, farm lot &amp; billing records,<br/>machinery/schedule status, calendar events,<br/>login/reset results" --> Member
+
+    Officer -- "login credentials, member approvals,<br/>sector/schedule/machinery data,<br/>billing periods, payment records" --> System
+    System -- "member lists, farm &amp; sector maps,<br/>billing reports, reservation queue,<br/>calendar events" --> Officer
+
+    System -- "reset link / activation notice" --> SMTP
+    SMTP -- "delivery result" --> System
+
+    System -- "map tile requests" --> OSM
+    OSM -- "map tiles" --> System

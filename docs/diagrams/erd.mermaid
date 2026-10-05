@@ -1,0 +1,148 @@
+erDiagram
+    USERS ||--o{ LOGIN_LOGS : "has"
+    USERS ||--o{ PASSWORD_RESETS : "requests"
+    USERS ||--o{ FARM_LOTS : "owns"
+    USERS ||--o{ MACHINERY_RESERVATIONS : "requests"
+    USERS ||--o{ ROTATION_SCHEDULES : "posts (officer)"
+    USERS ||--o{ BILLING_PERIODS : "opens (officer)"
+    USERS ||--o{ ISF_BILLS : "is billed"
+    USERS ||--o{ ISF_PAYMENTS : "records (officer)"
+    USERS ||--o{ SECTOR_AUTO_ASSIGNMENTS : "triggers (officer)"
+
+    SECTORS ||--o{ FARM_LOTS : "contains"
+    SECTORS ||--o{ ROTATION_SCHEDULES : "scheduled for"
+    SECTORS ||--o{ SECTOR_AUTO_ASSIGNMENTS : "previous/new sector"
+
+    FARM_LOTS ||--o{ ISF_BILLS : "billed"
+    FARM_LOTS ||--o{ SECTOR_AUTO_ASSIGNMENTS : "reassigned"
+
+    MACHINERY ||--o{ MACHINERY_RESERVATIONS : "reserved"
+
+    BILLING_PERIODS ||--o{ ISF_BILLS : "generates"
+    ISF_BILLS ||--o{ ISF_PAYMENTS : "receives"
+
+    USERS {
+        int user_id PK
+        varchar full_name
+        varchar email UK
+        varchar password_hash
+        enum role "officer or member"
+        varchar contact_number
+        enum status "active, inactive, pending"
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    LOGIN_LOGS {
+        int log_id PK
+        int user_id FK
+        timestamp login_time
+        varchar ip_address
+    }
+
+    PASSWORD_RESETS {
+        int reset_id PK
+        int user_id FK
+        char token_hash "SHA-256, never raw token"
+        datetime expires_at
+        datetime used_at "NULL until consumed"
+        varchar requested_ip
+        timestamp created_at
+    }
+
+    SECTORS {
+        int sector_id PK
+        varchar sector_name UK
+        varchar description
+        json boundary_geojson "polygon vertices, nullable"
+    }
+
+    FARM_LOTS {
+        int lot_id PK
+        int user_id FK
+        int sector_id FK "nullable"
+        varchar lot_name
+        decimal land_area_ha
+        decimal latitude "derived centroid, nullable"
+        decimal longitude "derived centroid, nullable"
+        json boundary_geojson "polygon vertices, nullable"
+        varchar notes
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    MACHINERY {
+        int machinery_id PK
+        varchar name UK
+        varchar description
+        tinyint is_available
+        timestamp created_at
+    }
+
+    MACHINERY_RESERVATIONS {
+        int reservation_id PK
+        int machinery_id FK
+        int user_id FK
+        date start_date
+        date end_date
+        varchar purpose
+        enum status "pending, approved, rejected, cancelled"
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    ROTATION_SCHEDULES {
+        int schedule_id PK
+        int sector_id FK
+        datetime start_time
+        datetime end_time
+        varchar notes
+        int group_id "shared tag, not a real FK"
+        int created_by FK "nullable"
+        timestamp created_at
+    }
+
+    BILLING_PERIODS {
+        int period_id PK
+        varchar period_name
+        decimal rate_per_ha
+        date start_date
+        date end_date
+        enum status "open or closed"
+        varchar notes
+        int created_by FK "nullable"
+        timestamp created_at
+    }
+
+    ISF_BILLS {
+        int bill_id PK
+        int period_id FK
+        int lot_id FK
+        int user_id FK
+        decimal land_area_ha "snapshot at billing time"
+        decimal rate_per_ha "snapshot at billing time"
+        decimal amount_due
+        decimal amount_paid
+        enum status "unpaid, partial, paid"
+        timestamp generated_at
+        timestamp updated_at
+    }
+
+    ISF_PAYMENTS {
+        int payment_id PK
+        int bill_id FK
+        decimal amount
+        date payment_date
+        int recorded_by FK "nullable"
+        varchar notes
+        timestamp created_at
+    }
+
+    SECTOR_AUTO_ASSIGNMENTS {
+        int assignment_id PK
+        int lot_id FK
+        int previous_sector_id FK "nullable"
+        int new_sector_id FK
+        timestamp assigned_at
+        int assigned_by FK "nullable"
+    }

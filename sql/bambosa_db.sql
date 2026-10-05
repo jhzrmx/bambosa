@@ -92,34 +92,77 @@ CREATE TABLE IF NOT EXISTS farm_lots (
 ) ENGINE=InnoDB;
 
 -- Epic 3 (simplified for now): Machinery Reservation System
--- Officers maintain the equipment list; members submit reservation requests
--- against a date range; officers approve/reject/cancel.
-CREATE TABLE IF NOT EXISTS machinery (
-    machinery_id INT AUTO_INCREMENT PRIMARY KEY,
-    name         VARCHAR(100) NOT NULL UNIQUE,
+-- Officers maintain the equipment list; members submit reservation requests;
+-- officers approve/reject/cancel.
+--
+-- Machinery groups (added alongside individual machines — see client
+-- feedback in the "Machinery Reservation" section of the README) let
+-- several interchangeable units of the same kind of equipment (e.g. three
+-- separate hand tractors) be reserved as one pool instead of one specific
+-- unit. A member requests against the GROUP; an officer picks which
+-- physical unit to actually hand over at approval time. This avoids the
+-- old friction where a member had to guess a specific machine, get
+-- rejected because that one unit was busy, and resubmit against a
+-- different one in the same group even though the group as a whole had
+-- availability the whole time.
+CREATE TABLE IF NOT EXISTS machinery_groups (
+    group_id     INT AUTO_INCREMENT PRIMARY KEY,
+    group_name   VARCHAR(100) NOT NULL UNIQUE,
     description  VARCHAR(255) DEFAULT NULL,
-    is_available TINYINT(1) NOT NULL DEFAULT 1,   -- officer can mark under-repair/out of service
     created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS machinery_reservations (
-    reservation_id INT AUTO_INCREMENT PRIMARY KEY,
-    machinery_id   INT NOT NULL,
-    user_id        INT NOT NULL,           -- member who requested it
-    start_date     DATE NOT NULL,
-    end_date       DATE NOT NULL,
-    purpose        VARCHAR(255) DEFAULT NULL,
-    status         ENUM('pending','approved','rejected','cancelled') NOT NULL DEFAULT 'pending',
-    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (machinery_id) REFERENCES machinery(machinery_id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS machinery (
+    machinery_id INT AUTO_INCREMENT PRIMARY KEY,
+    group_id     INT DEFAULT NULL,               -- NULL = standalone machine, not part of any group
+    name         VARCHAR(100) NOT NULL UNIQUE,
+    description  VARCHAR(255) DEFAULT NULL,
+    is_available TINYINT(1) NOT NULL DEFAULT 1,   -- officer can mark under-repair/out of service
+    damage_level TINYINT UNSIGNED NOT NULL DEFAULT 0,  -- 0 (pristine) to 100 (fully damaged) — officer-set condition slider
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (group_id) REFERENCES machinery_groups(group_id) ON DELETE SET NULL,
+    CONSTRAINT chk_machinery_damage_level CHECK (damage_level BETWEEN 0 AND 100)
 ) ENGINE=InnoDB;
 
-INSERT INTO machinery (name, description) VALUES
-    ('Hand Tractor #1', 'Kubota hand tractor for tilling'),
-    ('Water Pump #1', 'Gasoline-powered irrigation pump'),
-    ('Thresher #1', 'Mobile rice thresher')
+CREATE TABLE IF NOT EXISTS machinery_reservations (
+    reservation_id    INT AUTO_INCREMENT PRIMARY KEY,
+    -- A request is made against a GROUP (group_id) when the machine belongs
+    -- to one, or directly against a specific machine (machinery_id) when it
+    -- doesn't. Exactly one of the two is filled in at request time — see
+    -- the CHECK constraint below. machinery_id is filled in (or changed)
+    -- once an officer assigns a specific physical unit at approval time,
+    -- which is also true for a standalone (non-grouped) request: it's
+    -- already the specific unit, so approval just confirms it.
+    machinery_id       INT DEFAULT NULL,
+    group_id           INT DEFAULT NULL,
+    user_id            INT NOT NULL,           -- member who requested it
+    start_date         DATE NOT NULL,
+    end_date           DATE NOT NULL,
+    purpose            VARCHAR(255) DEFAULT NULL,
+    status             ENUM('pending','approved','rejected','cancelled') NOT NULL DEFAULT 'pending',
+    rejection_remark   VARCHAR(255) DEFAULT NULL,   -- required officer note when status = 'rejected'
+    created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (machinery_id) REFERENCES machinery(machinery_id) ON DELETE CASCADE,
+    FOREIGN KEY (group_id) REFERENCES machinery_groups(group_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    CONSTRAINT chk_reservation_target CHECK (
+        (machinery_id IS NOT NULL AND group_id IS NULL) OR
+        (machinery_id IS NULL AND group_id IS NOT NULL) OR
+        (machinery_id IS NOT NULL AND group_id IS NOT NULL)
+    )
+) ENGINE=InnoDB;
+
+INSERT INTO machinery_groups (group_name, description) VALUES
+    ('Hand Tractors', 'Kubota-type hand tractors for tilling')
+ON DUPLICATE KEY UPDATE group_name = group_name;
+
+SET @hand_tractor_group_id = (SELECT group_id FROM machinery_groups WHERE group_name = 'Hand Tractors');
+
+INSERT INTO machinery (name, description, group_id) VALUES
+    ('Hand Tractor #1', 'Kubota hand tractor for tilling', @hand_tractor_group_id),
+    ('Water Pump #1', 'Gasoline-powered irrigation pump', NULL),
+    ('Thresher #1', 'Mobile rice thresher', NULL)
 ON DUPLICATE KEY UPDATE name = name;
 
 -- Epic 4 (simplified for now): Digital Rotation Scheduling
