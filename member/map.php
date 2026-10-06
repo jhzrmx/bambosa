@@ -17,15 +17,12 @@ foreach ($lotBoundaries as $lb) {
     }
 }
 
-// A lot is "mapped" if it has a location at all — a drawn polygon, or (for
-// any older/unusual record that somehow has a point but no polygon) just
-// the coordinate point on its own.
-$mappedLots = array_filter($allLots, fn($lot) => $lot['latitude'] !== null && $lot['longitude'] !== null);
-$unmappedCount = count($allLots) - count($mappedLots);
-
-// Polygons to draw: every mapped lot that has one.
+// The map draws each lot's drawn boundary (boundary_geojson) ONLY. The
+// latitude/longitude columns are just the precomputed centroid of that
+// boundary, so they are no longer plotted as pins — a lot without a drawn
+// boundary simply can't be shown on the map yet.
 $boundaryPolygons = [];
-foreach ($mappedLots as $lot) {
+foreach ($allLots as $lot) {
     $lotId = (int) $lot['lot_id'];
     if (isset($boundaryByLotId[$lotId])) {
         $boundaryPolygons[] = [
@@ -36,23 +33,8 @@ foreach ($mappedLots as $lot) {
         ];
     }
 }
-
-// Point markers: only for mapped lots that do NOT have a polygon — once a
-// lot has a drawn boundary, the boundary is shown instead of a redundant
-// point marker at its centroid.
-$mapPoints = [];
-foreach ($mappedLots as $lot) {
-    $lotId = (int) $lot['lot_id'];
-    if (!isset($boundaryByLotId[$lotId])) {
-        $mapPoints[] = [
-            'lat'     => (float) $lot['latitude'],
-            'lng'     => (float) $lot['longitude'],
-            'lotName' => $lot['lot_name'],
-            'sector'  => $lot['sector_name'] ?? 'Unassigned',
-            'area'    => (float) $lot['land_area_ha'],
-        ];
-    }
-}
+$mappedCount   = count($boundaryPolygons);
+$unmappedCount = count($allLots) - $mappedCount;
 
 $activeNav = 'map';
 ?>
@@ -74,11 +56,11 @@ $activeNav = 'map';
 
   <main class="dash-main">
     <h1>My Farm Map</h1>
-    <p>A map of your registered farm lot(s), drawn as their actual shape where an officer has mapped one. Contact an officer if a boundary needs to be added or corrected.</p>
+    <p>A map of your registered farm lot(s), drawn as their actual shape (boundary) as mapped by an officer. Contact an officer if a boundary needs to be added or corrected.</p>
 
     <?php if (empty($allLots)): ?>
       <p class="muted-note">You don't have any farm lots registered yet. Contact an officer to have one added.</p>
-    <?php elseif (empty($mappedLots)): ?>
+    <?php elseif ($mappedCount === 0): ?>
       <p class="muted-note">Your farm lot(s) don't have a boundary drawn yet. Contact an officer to have your lot's shape added to the map.</p>
     <?php else: ?>
 
@@ -92,7 +74,7 @@ $activeNav = 'map';
       <div id="farmMap" class="map-container map-container-small"></div>
 
       <p class="muted-note" style="margin-top:0.75rem;">
-        <?= count($mappedLots) ?> of your farm lot<?= count($mappedLots) === 1 ? '' : 's' ?> shown.
+        <?= $mappedCount ?> of your farm lot<?= $mappedCount === 1 ? '' : 's' ?> shown.
       </p>
     <?php endif; ?>
   </main>
@@ -100,10 +82,9 @@ $activeNav = 'map';
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="<?= base_url('assets/js/dashboard.js') ?>"></script>
-<?php if (!empty($mappedLots)): ?>
+<?php if ($mappedCount > 0): ?>
 <script>
 (function () {
-  var points = <?= json_encode($mapPoints, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
   var boundaries = <?= json_encode($boundaryPolygons, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
   var map = L.map('farmMap');
@@ -133,37 +114,13 @@ $activeNav = 'map';
     b.boundary.forEach(function (pt) { fitTargets.push(pt); });
   });
 
-  var markers = [];
-  points.forEach(function (p) {
-    var marker = L.circleMarker([p.lat, p.lng], {
-      radius: 9,
-      color: '#1b2b23',
-      weight: 1.5,
-      fillColor: '#1f7a4d',
-      fillOpacity: 0.85
-    }).addTo(map);
-
-    var pointPopupHtml =
-      '<div class="map-popup">' +
-        '<strong>' + escapeHtml(p.lotName) + '</strong><br>' +
-        'Sector: ' + escapeHtml(p.sector) + '<br>' +
-        'Area: ' + p.area.toFixed(2) + ' ha' +
-      '</div>';
-
-    marker.bindPopup(pointPopupHtml);
-    markers.push(marker);
-    fitTargets.push([p.lat, p.lng]);
-  });
-
   function escapeHtml(str) {
     var div = document.createElement('div');
     div.appendChild(document.createTextNode(str));
     return div.innerHTML;
   }
 
-  if (fitTargets.length === 1) {
-    map.setView(fitTargets[0], 15);
-  } else if (fitTargets.length > 1) {
+  if (fitTargets.length > 0) {
     map.fitBounds(L.latLngBounds(fitTargets).pad(0.15));
   }
 })();

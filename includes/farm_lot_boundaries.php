@@ -113,9 +113,11 @@ function normalize_and_center_boundary(?array $rawPoints): array
  */
 function get_farm_lots_with_boundaries(PDO $pdo, ?int $userId = null): array
 {
-    $sql = "SELECT fl.lot_id, fl.lot_name, fl.boundary_geojson, fl.user_id, u.full_name AS owner_name
+    $sql = "SELECT fl.lot_id, fl.lot_name, fl.land_area_ha, fl.boundary_geojson, fl.user_id, fl.sector_id,
+                   s.sector_name, u.full_name AS owner_name
             FROM farm_lots fl
             JOIN users u ON u.user_id = fl.user_id
+            LEFT JOIN sectors s ON s.sector_id = fl.sector_id
             WHERE fl.boundary_geojson IS NOT NULL";
     $params = [];
     if ($userId !== null) {
@@ -137,3 +139,17 @@ function get_farm_lots_with_boundaries(PDO $pdo, ?int $userId = null): array
     return $rows;
 }
 
+/**
+ * Number of farm lots that can't be drawn on a map because they have no
+ * boundary (NULL, or fewer than 3 points). Used to flag incomplete data to
+ * officers on officer/map.php.
+ */
+function count_farm_lots_without_boundary(PDO $pdo): int
+{
+    $total = (int) $pdo->query('SELECT COUNT(*) AS cnt FROM farm_lots')->fetch()['cnt'];
+    $drawable = count(array_filter(
+        get_farm_lots_with_boundaries($pdo),
+        fn($l) => count($l['boundary']) >= 3
+    ));
+    return max(0, $total - $drawable);
+}

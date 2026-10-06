@@ -614,6 +614,25 @@ function reject_reservation(PDO $pdo, int $reservationId, string $remark): void
     $stmt->execute(['remark' => $remark, 'id' => $reservationId]);
 }
 
+/**
+ * Edits the remark on an ALREADY-rejected reservation (e.g. to fix a typo or
+ * give the member a clearer reason). Only touches rows whose status is
+ * 'rejected' — the status itself is never changed. Returns false if the
+ * reservation isn't currently rejected.
+ */
+function update_rejection_remark(PDO $pdo, int $reservationId, string $remark): bool
+{
+    $stmt = $pdo->prepare(
+        "UPDATE machinery_reservations SET rejection_remark = :remark
+         WHERE reservation_id = :id AND status = 'rejected'"
+    );
+    $stmt->execute(['remark' => $remark, 'id' => $reservationId]);
+    // rowCount() is 0 when the remark is unchanged, so check the status explicitly.
+    $check = $pdo->prepare("SELECT 1 FROM machinery_reservations WHERE reservation_id = :id AND status = 'rejected'");
+    $check->execute(['id' => $reservationId]);
+    return (bool) $check->fetchColumn();
+}
+
 /** Cancels a previously-approved reservation (officer action, e.g. equipment broke down after approval). */
 function cancel_reservation(PDO $pdo, int $reservationId): void
 {

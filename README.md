@@ -33,6 +33,7 @@ bambosa/
 │   ├── session.php              # session_start() bootstrap (uses base_path_utils.php for cookie path)
 │   ├── auth.php                 # require_login(), require_role(), CSRF helpers (uses base_path_utils.php for redirects)
 │   ├── members.php              # Member, farm-lot, sector & map data access
+│   ├── admin_users.php           # Admin-only account management (list/add/edit/delete users of any role, safety guards)
 │   ├── sector_boundaries.php     # Polygon storage, point-in-polygon test, auto-assignment logic
 │   ├── farm_lot_boundaries.php    # Farm lot polygon storage + centroid computation
 │   ├── machinery.php             # Machinery + reservation data access
@@ -43,10 +44,17 @@ bambosa/
 │   ├── mailer.php                     # PHPMailer wrapper — send_email(), render_email_layout()
 │   ├── password_reset.php              # Forgot-password token generation, verification, consumption
 │   ├── partials/
+│   │   ├── admin_sidebar.php       # Shared admin nav (topbar + drawer + overlay)
 │   │   ├── officer_sidebar.php     # Shared officer nav (topbar + drawer + overlay)
 │   │   ├── member_sidebar.php       # Shared member nav (topbar + drawer + overlay)
 │   │   └── .htaccess
 │   └── .htaccess
+├── admin/
+│   ├── dashboard.php           # Protected — role must be 'admin'; account counts + quick actions
+│   ├── profile.php              # Edit own name/contact/email/password
+│   ├── users.php                 # List/filter/search ALL accounts (admins, officers, members); edit/delete links
+│   ├── user_edit.php              # Add a new account / edit any other account (role, status, email, password)
+│   └── user_delete.php             # POST handler for deleting an account
 ├── officer/
 │   ├── dashboard.php           # Protected — role must be 'officer'
 │   ├── profile.php              # Edit own name/contact/password
@@ -61,7 +69,7 @@ bambosa/
 │   ├── billing_period_view.php          # Generate bills, view/filter bills, record payments
 │   ├── machinery.php                     # Manage machinery list (add/edit/delete/availability/group/damage)
 │   ├── machinery_groups.php               # Manage machinery groups (pools of interchangeable equipment)
-│   ├── reservations.php                   # Approve/reject (with remark)/cancel member reservation requests
+│   ├── reservations.php                   # Approve/reject (with remark; remark editable afterwards)/cancel member reservation requests
 │   ├── reservation_assign.php              # Pick a specific unit to assign + approve a group-targeted request
 │   ├── schedules.php                       # Create/edit/delete water rotation schedule entries
 │   └── map.php                              # All members' farm lots + sector boundaries on a Leaflet map
@@ -84,7 +92,7 @@ bambosa/
 │       ├── sector-boundaries.js  # Leaflet.draw polygon editor + live preview + save (vanilla JS)
 │       └── farm-lot-boundary.js   # Leaflet.draw editor for a single farm lot's boundary (vanilla JS)
 ├── sql/
-│   ├── bambosa_db.sql         # Full schema (fresh install) + seed officer account
+│   ├── bambosa_db.sql         # Full schema (fresh install) + seed officer & admin accounts
 │   ├── migrations/
 │   │   ├── 001_isf_billing.sql      # Adds billing_periods/isf_bills/isf_payments to an EXISTING db
 │   │   ├── 002_sector_polygons.sql   # Adds sectors.boundary_geojson + sector_auto_assignments to an EXISTING db
@@ -92,6 +100,7 @@ bambosa/
 │   │   ├── 004_schedule_groups.sql     # Adds rotation_schedules.group_id to an EXISTING db
 │   │   ├── 005_password_resets.sql      # Adds the password_resets table to an EXISTING db
 │   │   ├── 006_machinery_groups.sql      # Adds machinery_groups, damage_level, group-targeted reservations to an EXISTING db
+│   │   ├── 007_admin_role.sql             # Adds the 'admin' role + seeds a default admin account to an EXISTING db
 │   │   └── .htaccess
 │   └── .htaccess
 ├── docs/
@@ -99,7 +108,7 @@ bambosa/
 │       ├── README.md            # How to view/edit these + when to update them
 │       ├── erd.mermaid            # Entity-Relationship Diagram (Mermaid source)
 │       ├── dfd_level0.mermaid      # Level 0 / Context Data Flow Diagram
-│       └── dfd_level1.mermaid      # Level 1 Data Flow Diagram (7 major processes)
+│       └── dfd_level1.mermaid      # Level 1 Data Flow Diagram (8 major processes)
 └── serve.bat                  # Windows convenience script — runs `php -S localhost:8000`
                                 # from the project root; checks PHP is on PATH first
 ```
@@ -165,6 +174,9 @@ only replaces Apache, not the database.
    whether one was already applied (`CREATE TABLE IF NOT EXISTS` throughout,
    plus a column-existence / idempotency check before altering tables or
    adding indexes).
+   - `sql/migrations/007_admin_role.sql` — adds `'admin'` to the
+     `users.role` column and seeds a default admin account
+     (`admin@bambosa.local`, see "Admin role" below).
 
 Future schema changes will follow this same pattern: a new
 `sql/migrations/NNN_description.sql` file for existing installs, with the
@@ -216,10 +228,12 @@ like every existing page already does. You do **not** need to separately
 `auth.php` already pull it in, so it's available automatically as soon as
 either of those is loaded.
 
-This app currently only has pages one folder deep (`officer/`, `member/`)
-or at the root — if a future page goes two folders deep, the base-path
-detection logic in `includes/base_path_utils.php` (the officer/member
-regex) would need a small update to strip an extra segment.
+This app currently only has pages one folder deep (`admin/`, `officer/`, `member/`)
+or at the root. The base-path detection in `includes/base_path_utils.php`
+strips exactly those three folder names — so adding another role folder
+means adding it to the `(admin|officer|member)` regex there, or every link,
+asset URL and redirect on its pages will break. Going two folders deep
+would need an extra segment stripped as well.
 
 ## Search & pagination on management (CRUD) pages
 
@@ -304,9 +318,9 @@ displays) and regenerate `favicon.ico` from it — any PNG-to-ICO
 conversion tool works, since it's a small offline design asset, not
 something that needs regenerating at request-time.
 
-## Direct directory access (`/member/`, `/officer/`)
+## Direct directory access (`/admin/`, `/member/`, `/officer/`)
 
-Both `member/index.php` and `officer/index.php` now exist so that a user
+`admin/index.php`, `member/index.php` and `officer/index.php` all exist so that a user
 who browses to the bare directory URL (e.g. `http://localhost/bambosa/member/`)
 is routed somewhere sensible instead of hitting a server-generated
 directory listing or a blank/404 response (depending on server config).
@@ -315,9 +329,11 @@ enforces `require_login()` / `require_role()` as normal — so an
 unauthenticated visit still correctly redirects to `login.php`, and a
 wrong-role visit still redirects to that user's own dashboard.
 
-## Default officer account
+## Default accounts
 
-The seed SQL inserts an officer row with a **12345678** password hash.
+The seed SQL inserts an officer (`officer@bambosa.local`) and an admin
+(`admin@bambosa.local`), both with password **12345678** — change both
+after first login. Each row uses the same hash:
 You can also generate a real one:
 
 ```bash
@@ -334,13 +350,14 @@ Run that command snippet once then replace the output of
 - Sessions are hardened (`httponly`, `samesite=Lax`) via `includes/session.php`.
 - `includes/auth.php` provides:
   - `require_login()` — kicks unauthenticated users to `/login.php`
-  - `require_role('officer'|'member')` — kicks users with the wrong role to their own dashboard
+  - `require_role('admin'|'officer'|'member')` — kicks users with the wrong role to their own dashboard
+  - `sync_session_with_db()` (run from `is_logged_in()`, once per request) — re-checks the logged-in user against the database, so an admin deleting/deactivating an account or changing its role takes effect immediately rather than at the user's next login
   - `csrf_token()` / `csrf_verify()` — CSRF protection on login/signup forms
 - New signups are inserted with `status = 'pending'` and role `member`.
   An officer approves/activates them from `officer/members.php`
   (`officer/update_status.php`) — see Epic 2 below — before they can log
-  in. Officer accounts are **not** self-registrable — provision them
-  directly in the database for security.
+  in. Officer and admin accounts are **not** self-registrable — an admin
+  creates them from `admin/users.php`.
 - Forgotten passwords are self-service via `forgot_password.php` /
   `reset_password.php` — see "Outgoing Email" further down for the full
   writeup of how that flow works and what it depends on (SMTP being
@@ -423,7 +440,51 @@ only need to be maintained in one place per role.
   `<div class="dash-shell">`, `include` the relevant sidebar partial,
   add `<main class="dash-main">`, and include `dashboard.js` before `</body>`.
 
-## Account self-service (profile & password) — both roles
+## Roles at a glance
+
+| | Member | Officer | Admin |
+|---|---|---|---|
+| Self-register via `signup.php` | ✅ (starts `pending`) | ❌ | ❌ |
+| Edit own name / contact / email / password | ✅ | ✅ | ✅ |
+| View own farm lots, bills, schedule, reservations | ✅ | — | — |
+| Manage members' farm lots, sectors, billing, schedules, machinery, reservations | ❌ | ✅ | ❌ |
+| Approve / deactivate **member** accounts | ❌ | ✅ | ✅ |
+| Add / edit / delete **officer & admin** accounts | ❌ | ❌ | ✅ |
+| Add / edit / delete **member** accounts (incl. role & status changes) | ❌ | ❌ | ✅ |
+| Dashboard | `member/dashboard.php` | `officer/dashboard.php` | `admin/dashboard.php` |
+
+## Admin role
+
+A third role, `admin`, is the "master key" for accounts. Admins log in at
+the normal login page and land on `admin/dashboard.php`.
+
+- **User Management** (`admin/users.php`): one list of every account
+  (admins, officers, members) with role tabs, status tabs, search, and
+  pagination.
+- **Add** (`admin/user_edit.php`): create an account of any role with a
+  chosen status (so officers/admins can be provisioned without touching the
+  database) and an initial password (min. 8 characters).
+- **Edit** (`admin/user_edit.php?id=…`): change name, email, contact, role,
+  status, and optionally set a new password (blank keeps the current one).
+  Email must be valid and unique.
+- **Delete** (`admin/user_delete.php`, POST + CSRF): permanently removes an
+  account. Database cascades also remove a member's farm lots, reservations
+  and ISF bills/payments; records an officer merely created (schedules,
+  machinery, recorded payments) are kept with the author cleared. The
+  confirmation dialog warns about this.
+- **Own account**: `admin/profile.php` works like every other profile page
+  (name, contact, email — which needs the current password — and password).
+- **Safety rules** (`user_change_guard_error()`): an admin can't delete,
+  demote, or deactivate their own account from user management, and the
+  last active admin can never be deleted, demoted, or deactivated — so the
+  system can't be locked out of admin access.
+- Admins manage **accounts only**; day-to-day association records (lots,
+  billing, schedules, machinery) stay with officers.
+- Officers can still approve/deactivate **member** accounts from
+  `officer/members.php`, but `officer/update_status.php` now refuses to
+  touch admin or officer accounts.
+
+## Account self-service (profile & password) — all roles
 
 Every logged-in user — officer or member — can update their own name,
 contact number, and password without needing another officer to do it
@@ -436,10 +497,11 @@ for them:
   change form, linked from a new "My Profile" item in the officer
   sidebar (there previously wasn't one; officers had no self-service
   page at all).
-- **Email is intentionally read-only** on both pages — changing it would
-  need a re-verification flow (confirm the new address is really theirs)
-  that's out of scope for now, so it's shown disabled with a note instead
-  of silently allowed.
+- **Email is editable** on all profile pages. Because it is the login name
+  and password-reset address, changing it requires the current password
+  (`verify_user_password()` in `includes/members.php`); it must be a valid
+  address not used by another account. No verification link is sent to the
+  new address.
 - **Password changes** require the current password to be entered and
   verified (`change_user_password()` in `includes/members.php`) before a
   new one is accepted — this stops a hijacked/unattended logged-in
@@ -546,6 +608,14 @@ this:
   remark is shown to the member on their own reservation history
   (`member/machinery_history.php`) so they know why, and to the officer
   inline on the reservations list.
+- **Editing a remark after rejection:** rejected rows on
+  `officer/reservations.php` have an **Edit Remark** action that opens the
+  same inline form, pre-filled with the saved remark. It posts
+  `reservation_action=edit_remark`, handled by `update_rejection_remark()`
+  in `includes/machinery.php`, which only updates rows whose status is still
+  `rejected` and never changes the status. The remark stays required and is
+  capped at 255 characters (the column size); the member sees the updated
+  text on their reservation history immediately.
 
 ### Conflict/overlap detection (unchanged in spirit, extended to groups)
 
@@ -714,21 +784,21 @@ own visualization layer over the same underlying data: an interactive map
 using **Leaflet.js** (open-source, no API key) with **OpenStreetMap** tiles,
 both loaded from a CDN.
 
-- `officer/map.php` — plots every farm lot that has coordinates, color-coded
-  by sector, with a legend, plus any drawn farm lot boundary polygons
-  (dashed, dark grey) layered underneath for detail. Tapping a marker shows
-  the lot name, owner, sector, and hectares, plus a link straight to that
-  member's record. If any farm lots are missing coordinates, a banner tells
+- `officer/map.php` — draws every farm lot that has a drawn boundary as its
+  actual shape, filled with its sector's color (with a legend), and any
+  drawn sector boundaries as dashed outlines underneath. Clicking a lot
+  opens a popup (no separate hover tooltip, which doubled up on touch screens) with its name, owner, sector, and hectares, plus a link straight to that
+  member's record. If any farm lots have no boundary drawn, a banner tells
   the officer how many, so incomplete data entry is visible rather than
   silently skipped.
 - `member/map.php` — scoped to just the logged-in member's own farm lot(s),
   consistent with the read-only pattern already used on `member/profile.php`.
-  Unlike the officer map, this one shows **only the drawn boundary polygon**
-  for a lot that has one — no separate point marker — since the point is
-  just that polygon's centroid and would be a redundant second symbol for
-  the same shape. A lot with coordinates but no polygon (only possible from
-  data pre-dating the polygon feature) still falls back to a plain point
-  marker so it isn't hidden entirely.
+  This map draws **only each lot's boundary polygon** (`boundary_geojson`) —
+  `latitude`/`longitude` are just the precomputed centroid of that shape,
+  so they are no longer plotted as pins. A lot with no drawn boundary
+  (including any legacy point-only record) isn't shown on the map; the page
+  tells the member how many of their lots are missing a boundary so they
+  can ask an officer to draw it.
 - No new database tables were needed for the point-based version of this —
   it reads `farm_lots.latitude` / `farm_lots.longitude`, and (for drawn
   shapes) `farm_lots.boundary_geojson` — see "Farm Lot Polygons" below.
@@ -757,7 +827,12 @@ sector automatically.
   key), edit/reshape it, then save. Other sectors' saved boundaries are
   shown dimmed on the map for spatial context while you draw. A live
   "Preview Matches" button shows which farm lots would fall inside the
-  polygon before you commit anything.
+  polygon before you commit anything. Farm lots appear on this map as their
+  own drawn boundary shapes (filled with their current sector's color; the
+  "Show farm lots on map" checkbox toggles them) rather than lat/lng pins.
+  Lots with no drawn boundary aren't shown. The matching itself is
+  unchanged and still uses each lot's stored centroid (`latitude`/`longitude`)
+  server-side.
 - Boundaries are stored as a JSON array of `[lat, lng]` vertex pairs in a
   new `sectors.boundary_geojson` column — intentionally simple (not full
   GeoJSON Feature wrapping) since that's exactly the vertex list
@@ -792,7 +867,7 @@ sector automatically.
     — so an officer can always see what the system changed on its own, as
     opposed to a manual edit.
 - `officer/map.php` also renders any drawn boundaries as read-only, dimmed
-  polygons alongside the farm lot markers, so the general map view and the
+  outlines beneath the farm lot shapes, so the general map view and the
   boundary editor feel like one consistent picture of the association's
   geography.
 - All of the drawing/preview/save interactivity is vanilla JavaScript
@@ -851,15 +926,14 @@ latitude/longitude are no longer manually editable fields.
   incomplete polygon; needs at least 3) and computes the centroid, and
   `create_farm_lot()`/`update_farm_lot()` in `includes/members.php`
   persist the polygon and derived point together in a single query.
-- **Where it's shown:** `officer/map.php` renders farm lot polygons
-  (thin, dashed, dark grey) alongside sector boundaries (thicker,
-  colored) and still also plots the sector-colored point marker for
-  quick visual scanning across many lots at once. `member/map.php`
-  instead shows **only the polygon** for a member's own lot(s) — no
-  redundant point marker once a shape exists, since the point is just
-  the shape's centroid; a lot somehow has a point but no polygon (only
-  possible from data predating this feature) still falls back to a
-  plain marker so it isn't hidden entirely.
+- **Where it's shown:** `member/map.php`, `officer/sector_boundaries.php` and
+  `officer/map.php` render lots as their **boundary polygons only** — the centroid
+  (`latitude`/`longitude`) is never plotted there, and a lot without a drawn
+  boundary isn't shown. `officer/map.php` does the same: each lot is a
+  polygon filled with its sector's color (sector boundaries are drawn as
+  dashed outlines underneath), and clicking a lot opens a popup with its
+  details and a **View member** link to the owner's record — the same
+  behavior the old pin had.
 - Both the officer's and member's farm-lot tables (`officer/member_view.php`,
   `member/profile.php`) show a "Drawn" / "Not drawn" badge instead of raw
   coordinates, since the coordinates alone aren't the interesting fact

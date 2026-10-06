@@ -3,13 +3,17 @@ require_once __DIR__ . '/../includes/session.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/members.php';
+require_once __DIR__ . '/../includes/farm_lot_boundaries.php';
 require_once __DIR__ . '/../includes/sector_boundaries.php';
 
 require_role('officer');
 
 $sectors = get_sectors($pdo);
 $sectorsWithBoundaries = get_sectors_with_boundaries($pdo);
-$mappedLots = get_mapped_farm_lots($pdo);
+// Farm lots are drawn on this map as their boundary shapes (boundary_geojson),
+// not as lat/lng pins — latitude/longitude are only the precomputed centroid
+// used server-side for sector matching.
+$lotShapes = array_filter(get_farm_lots_with_boundaries($pdo), fn($l) => count($l['boundary']) >= 3);
 $recentAssignments = get_recent_auto_assignments($pdo, 15);
 
 // Build a stable color per sector (same palette convention as officer/map.php).
@@ -42,16 +46,15 @@ foreach ($sectorsWithBoundaries as $sb) {
     }
 }
 
-$lotsJson = array_map(function ($lot) {
+$lotsJson = array_values(array_map(function ($lot) {
     return [
         'lotId'    => (int) $lot['lot_id'],
         'lotName'  => $lot['lot_name'],
         'owner'    => $lot['owner_name'],
-        'lat'      => (float) $lot['latitude'],
-        'lng'      => (float) $lot['longitude'],
+        'boundary' => $lot['boundary'],   // array of [lat, lng]
         'sectorId' => $lot['sector_id'] !== null ? (int) $lot['sector_id'] : null,
     ];
-}, $mappedLots);
+}, $lotShapes));
 
 // A calm default view (center + zoom) for whenever the map has nothing in
 // particular to zoom tightly to — i.e. the selected sector has no
@@ -83,8 +86,9 @@ $activeNav = 'boundaries';
   <main class="dash-main">
     <h1>Sector Boundaries</h1>
     <p>
-      Draw a polygon for each sector's boundary. Farm lots whose coordinates fall inside
-      a boundary can be auto-assigned to that sector — no GIS software or exported
+      Draw a polygon for each sector's boundary. Farm lots are shown on the map as their
+      own drawn shapes; a lot whose centre point (the centroid of its boundary) falls inside
+      a sector boundary can be auto-assigned to that sector — no GIS software or exported
       boundary file needed. This is a stand-in for a real QGIS-drawn boundary dataset,
       using the same point-in-polygon logic a GIS spatial join would use.
     </p>

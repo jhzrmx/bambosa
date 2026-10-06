@@ -16,6 +16,8 @@ erDiagram
     FARM_LOTS ||--o{ ISF_BILLS : "billed"
     FARM_LOTS ||--o{ SECTOR_AUTO_ASSIGNMENTS : "reassigned"
 
+    MACHINERY_GROUPS ||--o{ MACHINERY : "pools"
+    MACHINERY_GROUPS ||--o{ MACHINERY_RESERVATIONS : "requested via"
     MACHINERY ||--o{ MACHINERY_RESERVATIONS : "reserved"
 
     BILLING_PERIODS ||--o{ ISF_BILLS : "generates"
@@ -26,7 +28,7 @@ erDiagram
         varchar full_name
         varchar email UK
         varchar password_hash
-        enum role "officer or member"
+        enum role "admin, officer or member (admins manage all accounts)"
         varchar contact_number
         enum status "active, inactive, pending"
         timestamp created_at
@@ -71,22 +73,33 @@ erDiagram
         timestamp updated_at
     }
 
+    MACHINERY_GROUPS {
+        int group_id PK
+        varchar group_name UK
+        varchar description
+        timestamp created_at
+    }
+
     MACHINERY {
         int machinery_id PK
+        int group_id FK "nullable, NULL = standalone"
         varchar name UK
         varchar description
         tinyint is_available
+        tinyint damage_level "0-100 condition"
         timestamp created_at
     }
 
     MACHINERY_RESERVATIONS {
         int reservation_id PK
-        int machinery_id FK
+        int machinery_id FK "nullable until a unit is assigned"
+        int group_id FK "nullable, set when requesting a pool"
         int user_id FK
         date start_date
         date end_date
         varchar purpose
         enum status "pending, approved, rejected, cancelled"
+        varchar rejection_remark "required when rejected"
         timestamp created_at
         timestamp updated_at
     }

@@ -15,7 +15,47 @@ require_once __DIR__ . '/base_path_utils.php';
  */
 function is_logged_in(): bool
 {
+    if (!isset($_SESSION['user_id'])) {
+        return false;
+    }
+    sync_session_with_db();
     return isset($_SESSION['user_id']);
+}
+
+/**
+ * Re-checks the logged-in user against the database once per request, so
+ * account changes made by an admin take effect immediately instead of only
+ * at the user's next login:
+ *   - account deleted, or no longer 'active'  -> session is ended
+ *   - role changed (e.g. officer -> member)   -> session role is updated
+ * Skipped on pages that haven't loaded config/database.php ($pdo unset);
+ * those are public pages, and every protected page loads it. Fails open on
+ * a database error (logged) rather than logging everyone out.
+ */
+function sync_session_with_db(): void
+{
+    static $done = false;
+    if ($done || !isset($GLOBALS['pdo']) || !($GLOBALS['pdo'] instanceof PDO)) {
+        return;
+    }
+    $done = true;
+
+    try {
+        $stmt = $GLOBALS['pdo']->prepare('SELECT role, status, full_name FROM users WHERE user_id = :id');
+        $stmt->execute(['id' => (int) $_SESSION['user_id']]);
+        $row = $stmt->fetch();
+    } catch (PDOException $e) {
+        error_log('Session sync error: ' . $e->getMessage());
+        return;
+    }
+
+    if (!$row || $row['status'] !== 'active') {
+        $_SESSION = [];
+        return;
+    }
+
+    $_SESSION['role']      = $row['role'];
+    $_SESSION['full_name'] = $row['full_name'];
 }
 
 /**
@@ -60,7 +100,9 @@ function redirect_to_dashboard(): void
 {
     $role = current_role();
 
-    if ($role === 'officer') {
+    if ($role === 'admin') {
+        header('Location: ' . base_url('admin/dashboard.php'));
+    } elseif ($role === 'officer') {
         header('Location: ' . base_url('officer/dashboard.php'));
     } elseif ($role === 'member') {
         header('Location: ' . base_url('member/dashboard.php'));

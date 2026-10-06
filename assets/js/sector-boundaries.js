@@ -22,7 +22,7 @@
     if (!config || !document.getElementById('boundaryMap')) return;
 
     var sectors = config.sectors;         // [{id, name, color, hasBoundary, boundary}]
-    var lots = config.lots;               // [{lotId, lotName, owner, lat, lng, sectorId}]
+    var lots = config.lots;               // [{lotId, lotName, owner, boundary:[[lat,lng],...], sectorId}]
     var sectorSelect = document.getElementById('sectorSelect');
     var alertBox = document.getElementById('boundaryAlert');
     var legendBox = document.getElementById('boundaryLegend');
@@ -57,24 +57,25 @@
     // Editable layer for the currently-selected sector's polygon.
     var editableLayerGroup = new L.FeatureGroup().addTo(map);
 
-    // Farm lot markers, colored by their current sector assignment.
-    var lotMarkersGroup = L.layerGroup().addTo(map);
+    // Farm lots, drawn as their actual boundary shapes (not lat/lng pins),
+    // colored by their current sector assignment.
+    var lotShapesGroup = L.layerGroup().addTo(map);
     lots.forEach(function (lot) {
+      if (!lot.boundary || lot.boundary.length < 3) return;
       var color = (lot.sectorId !== null && sectorsById[lot.sectorId])
         ? sectorsById[lot.sectorId].color
         : '#647a6d';
-      var marker = L.circleMarker([lot.lat, lot.lng], {
-        radius: 6,
+      var shape = L.polygon(lot.boundary, {
         color: '#1b2b23',
-        weight: 1,
+        weight: 1.5,
         fillColor: color,
-        fillOpacity: 0.85
+        fillOpacity: 0.55
       });
-      marker.bindPopup(
+      shape.bindPopup(
         '<div class="map-popup"><strong>' + escapeHtml(lot.lotName) + '</strong><br>' +
         'Owner: ' + escapeHtml(lot.owner) + '</div>'
       );
-      marker.addTo(lotMarkersGroup);
+      shape.addTo(lotShapesGroup);
     });
 
     // Leaflet.draw control — only lets the officer draw/edit polygons,
@@ -215,9 +216,9 @@
     if (toggleLotMarkersCheckbox) {
       toggleLotMarkersCheckbox.addEventListener('change', function () {
         if (toggleLotMarkersCheckbox.checked) {
-          map.addLayer(lotMarkersGroup);
+          map.addLayer(lotShapesGroup);
         } else {
-          map.removeLayer(lotMarkersGroup);
+          map.removeLayer(lotShapesGroup);
         }
       });
     }

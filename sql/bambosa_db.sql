@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name      VARCHAR(150)        NOT NULL,
     email          VARCHAR(150)        NOT NULL UNIQUE,
     password_hash  VARCHAR(255)        NOT NULL,
-    role           ENUM('officer','member') NOT NULL DEFAULT 'member',
+    role           ENUM('admin','officer','member') NOT NULL DEFAULT 'member',
     contact_number VARCHAR(20)         DEFAULT NULL,
     status         ENUM('active','inactive','pending') NOT NULL DEFAULT 'pending',
     created_at     TIMESTAMP           DEFAULT CURRENT_TIMESTAMP,
@@ -264,5 +264,16 @@ VALUES (
     'officer@bambosa.local',
     '$2y$10$74S9DMg5zKVTQTI.5ApgdOwHpAdhwuoNVG4c/h3uWKtkQiNoIUSJi',
     'officer',
+    'active'
+);
+
+-- Default admin account (can add/edit/delete officer and member accounts).
+-- Password: 12345678 — CHANGE IT after first login via My Profile.
+INSERT INTO users (full_name, email, password_hash, role, status)
+VALUES (
+    'Default Admin',
+    'admin@bambosa.local',
+    '$2y$10$74S9DMg5zKVTQTI.5ApgdOwHpAdhwuoNVG4c/h3uWKtkQiNoIUSJi',
+    'admin',
     'active'
 );

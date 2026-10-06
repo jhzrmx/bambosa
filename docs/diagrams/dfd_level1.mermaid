@@ -1,6 +1,7 @@
 flowchart TB
     Member(["Member"])
     Officer(["Officer"])
+    Admin(["Admin"])
     SMTP(["SMTP Email Server"])
     OSM(["OpenStreetMap / Map Tiles"])
 
@@ -11,6 +12,7 @@ flowchart TB
     P5["5.0<br/>Rotation Scheduling"]
     P6["6.0<br/>ISF Billing &amp;<br/>Payment Processing"]
     P7["7.0<br/>Dashboard &amp; Calendar<br/>Reporting"]
+    P8["8.0<br/>User Account<br/>Administration"]
 
     D1[("D1 users")]
     D2[("D2 password_resets /<br/>login_logs")]
@@ -23,8 +25,10 @@ flowchart TB
     %% ---- Authentication ----
     Member -- "signup form, login,<br/>forgot/reset password" --> P1
     Officer -- "login, approve/activate member" --> P1
+    Admin -- "login, own profile/email/<br/>password update" --> P1
     P1 -- "session, validation errors,<br/>reset confirmation" --> Member
     P1 -- "session, member list w/ status" --> Officer
+    P1 -- "session, profile confirmation" --> Admin
     P1 <--> D1
     P1 <--> D2
     P1 -- "reset link / activation email" --> SMTP
@@ -75,6 +79,16 @@ flowchart TB
     P7 -- "reads" --> D5
     P7 -- "reads" --> D6
     P7 -- "reads" --> D7
+
+    %% ---- User Account Administration (admin only) ----
+    Admin -- "add / edit / delete accounts,<br/>set role, status, password" --> P8
+    P8 -- "account list (all roles),<br/>validation &amp; safety-rule errors" --> Admin
+    P8 <--> D1
+    P8 -- "cascade delete of<br/>logs &amp; reset tokens" --> D2
+    P8 -- "cascade delete of<br/>member's lots" --> D3
+    P8 -- "cascade delete of<br/>member's reservations" --> D5
+    P8 -- "cascade delete of<br/>member's bills &amp; payments" --> D7
+    P1 -- "per-request check: account still<br/>exists / active, current role" --> D1
 
     %% ---- Map tiles used by farm/sector maps ----
     P2 -- "tile requests" --> OSM

@@ -34,9 +34,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && csrf_verify($_POST['csrf_token'] ??
         $remark = trim($_POST['rejection_remark'] ?? '');
         if ($remark === '') {
             $rejectErrors[$reservationId] = 'A remark is required when rejecting a request, so the member knows why.';
+        } elseif (mb_strlen($remark) > 255) {
+            $rejectErrors[$reservationId] = 'The remark must be 255 characters or fewer.';
         } else {
             reject_reservation($pdo, $reservationId, $remark);
             header('Location: ' . base_url('officer/reservations.php?flash=updated' . ($statusFilter ? '&status=' . $statusFilter : '')));
+            exit;
+        }
+    }
+
+    // Edit the remark of a reservation that was already rejected (status stays 'rejected').
+    if ($reservationId > 0 && $action === 'edit_remark') {
+        $remark = trim($_POST['rejection_remark'] ?? '');
+        if ($remark === '') {
+            $rejectErrors[$reservationId] = 'A remark is required, so the member knows why it was rejected.';
+        } elseif (mb_strlen($remark) > 255) {
+            $rejectErrors[$reservationId] = 'The remark must be 255 characters or fewer.';
+        } elseif (!update_rejection_remark($pdo, $reservationId, $remark)) {
+            header('Location: ' . base_url('officer/reservations.php?flash=remark_failed' . ($statusFilter ? '&status=' . $statusFilter : '')));
+            exit;
+        } else {
+            header('Location: ' . base_url('officer/reservations.php?flash=remark_updated' . ($statusFilter ? '&status=' . $statusFilter : '')));
             exit;
         }
     }
@@ -76,6 +94,10 @@ $pageBaseUrl = base_url('officer/reservations.php' . ($statusFilter ? '?status='
 
     <?php if ($flash === 'updated'): ?>
       <div class="alert alert-success">Reservation updated.</div>
+    <?php elseif ($flash === 'remark_updated'): ?>
+      <div class="alert alert-success">Rejection remark updated. The member will see the new remark.</div>
+    <?php elseif ($flash === 'remark_failed'): ?>
+      <div class="alert alert-error">Couldn't update the remark — that reservation is no longer rejected.</div>
     <?php elseif ($flash === 'approve_failed'): ?>
       <div class="alert alert-error">Couldn't approve — that machine is no longer available for these dates. Please pick a different one or reject the request.</div>
     <?php endif; ?>
@@ -169,26 +191,38 @@ $pageBaseUrl = base_url('officer/reservations.php' . ($statusFilter ? '?status='
                   <input type="hidden" name="reservation_action" value="cancel">
                   <button type="submit" class="link-btn deactivate">Cancel</button>
                 </form>
+              <?php elseif ($r['status'] === 'rejected'): ?>
+                <button type="button" class="link-btn approve" onclick="document.getElementById('rejectRow<?= (int) $r['reservation_id'] ?>').style.display='table-row';">Edit Remark</button>
               <?php else: ?>
                 <span class="muted-note">—</span>
               <?php endif; ?>
             </td>
           </tr>
-          <?php if ($r['status'] === 'pending'): ?>
+          <?php if (in_array($r['status'], ['pending', 'rejected'], true)):
+            $isEditRemark = $r['status'] === 'rejected';
+            $hasPostedError = isset($rejectErrors[$r['reservation_id']]);
+            // Prefill: re-show what was just typed after a validation error; otherwise the saved remark (edit) or blank (new reject).
+            $remarkValue = $hasPostedError ? ($_POST['rejection_remark'] ?? '') : ($isEditRemark ? ($r['rejection_remark'] ?? '') : '');
+          ?>
             <tr id="rejectRow<?= (int) $r['reservation_id'] ?>" class="reject-remark-row" style="display:<?= isset($rejectErrors[$r['reservation_id']]) ? 'table-row' : 'none' ?>;">
               <td colspan="6">
                 <form method="POST" class="inline-form" style="display:flex; gap:0.6rem; align-items:flex-start; flex-wrap:wrap;">
                   <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
                   <input type="hidden" name="reservation_id" value="<?= (int) $r['reservation_id'] ?>">
-                  <input type="hidden" name="reservation_action" value="reject">
+                  <input type="hidden" name="reservation_action" value="<?= $isEditRemark ? 'edit_remark' : 'reject' ?>">
                   <div class="form-group" style="flex:1; min-width:220px; margin-bottom:0;">
-                    <input type="text" name="rejection_remark" placeholder="Reason for rejecting (required) — e.g. equipment under repair"
-                           value="<?= isset($rejectErrors[$r['reservation_id']]) ? htmlspecialchars($_POST['rejection_remark'] ?? '') : '' ?>">
+                    <input type="text" name="rejection_remark" maxlength="255"
+                           placeholder="<?= $isEditRemark ? 'Rejection remark (required)' : 'Reason for rejecting (required) — e.g. equipment under repair' ?>"
+                           value="<?= htmlspecialchars($remarkValue) ?>">
                     <?php if (isset($rejectErrors[$r['reservation_id']])): ?>
                       <p class="muted-note" style="color:var(--clr-error, #b3261e); margin:0.3rem 0 0;"><?= htmlspecialchars($rejectErrors[$r['reservation_id']]) ?></p>
                     <?php endif; ?>
                   </div>
-                  <button type="submit" class="link-btn deactivate">Confirm Reject</button>
+                  <?php if ($isEditRemark): ?>
+                    <button type="submit" class="link-btn approve">Save Remark</button>
+                  <?php else: ?>
+                    <button type="submit" class="link-btn deactivate">Confirm Reject</button>
+                  <?php endif; ?>
                   <button type="button" class="link-btn" onclick="document.getElementById('rejectRow<?= (int) $r['reservation_id'] ?>').style.display='none';">Cancel</button>
                 </form>
               </td>

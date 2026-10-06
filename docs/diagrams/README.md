@@ -9,10 +9,11 @@ a hand-drawn image would.
   `sql/bambosa_db.sql` (every table, column, PK/FK/unique key).
 - `dfd_level0.mermaid` — Level 0 (Context) Data Flow Diagram: the whole
   system as one process, with its external entities (Member, Officer,
-  SMTP server, OpenStreetMap tiles).
-- `dfd_level1.mermaid` — Level 1 DFD: the system decomposed into its 7
+  Admin, SMTP server, OpenStreetMap tiles).
+- `dfd_level1.mermaid` — Level 1 DFD: the system decomposed into its 8
   major processes (auth, farm lots, sectors, machinery, scheduling,
-  billing, dashboard/calendar), each mapped to its real backing table(s).
+  billing, dashboard/calendar, admin user-account administration), each
+  mapped to its real backing table(s).
 
 ## How to view or edit these
 
@@ -35,6 +36,6 @@ If the schema changes (a new table, a new column, a new FK), update
 `erd.mermaid` to match `sql/bambosa_db.sql` — it's a straightforward
 mechanical translation: one `CREATE TABLE` block becomes one entity block,
 one `FOREIGN KEY` line becomes one relationship line. The DFDs only need
-updating if an entirely new *feature area* is added (a new process bubble)
-or an existing one starts touching a different data store — small
+updating if an entirely new *feature area* is added (a new process bubble — e.g. process 8.0, User Account
+Administration, was added with the admin role) or an existing one starts touching a different data store — small
 UI/behavior tweaks within an existing feature don't need a DFD change.

@@ -24,15 +24,15 @@ if (!defined('BAMBOSA_BASE_PATH')) {
     // '/bambosa/officer/dashboard.php' when installed in a subdirectory.
     //
     // Every page in this app lives either directly in the project root
-    // (index.php, login.php, ...) or exactly one folder below it (officer/,
-    // member/). So the base path is SCRIPT_NAME with either one or two
+    // (index.php, login.php, ...) or exactly one folder below it (admin/,
+    // officer/, member/). So the base path is SCRIPT_NAME with either one or two
     // path segments stripped off the end, depending on folder depth.
     $scriptName = str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? '');
     $dir = str_replace('\\', '/', dirname($scriptName)); // e.g. '/bambosa/officer' or '/bambosa' or '/'
 
-    if (preg_match('#/(officer|member)$#', $dir)) {
-        // Strip the officer/member segment to land on the project root.
-        $basePath = preg_replace('#/(officer|member)$#', '', $dir);
+    if (preg_match('#/(admin|officer|member)$#', $dir)) {
+        // Strip the admin/officer/member segment to land on the project root.
+        $basePath = preg_replace('#/(admin|officer|member)$#', '', $dir);
     } else {
         $basePath = $dir;
     }
@@ -57,8 +57,8 @@ if (!defined('BAMBOSA_BASE_PATH')) {
  * leading slash.
  *
  * Note: if a future page is added two folders deep (this app currently
- * only has pages at the root or one folder deep under officer/ or
- * member/), the officer|member regex above would need to account for the
+ * only has pages at the root or one folder deep under admin/,
+ * officer/ or member/), the admin|officer|member regex above would need to account for the
  * extra segment.
  */
 function base_url(string $path = ''): string

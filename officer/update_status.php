@@ -24,6 +24,12 @@ if ($userId > 0 && in_array($status, ['active', 'inactive', 'pending'], true)) {
         // each time; only a genuine "your account just got approved"
         // moment should).
         $member = get_user_by_id($pdo, $userId);
+        // Officers manage MEMBER accounts only; admin/officer accounts are
+        // changed by an admin (admin/users.php).
+        if (!$member || $member['role'] !== 'member') {
+            header('Location: ' . base_url('officer/members.php'));
+            exit;
+        }
         $wasPending = $member && $member['status'] === 'pending';
 
         update_user_status($pdo, $userId, $status);
