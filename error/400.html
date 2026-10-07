@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>400 Bad Request · BAMBOSA</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2C12 2 5 10.2 5 15a7 7 0 0014 0C19 10.2 12 2 12 2z' fill='%231f7a4d'/%3E%3C/svg%3E">
+<style>
+  /* Self-contained on purpose: error pages can be served from any URL depth
+     (and when the app itself is broken), so they depend on no other files. */
+  :root {
+    --clr-primary: #1f7a4d;
+    --clr-primary-dark: #155c39;
+    --clr-accent: #2e9cca;
+    --clr-bg: #f4f8f5;
+    --clr-surface: #ffffff;
+    --clr-text: #1b2b23;
+    --clr-muted: #647a6d;
+    --clr-border: #dbe6de;
+    --radius: 10px;
+    --shadow: 0 4px 16px rgba(20, 40, 30, 0.08);
+    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    font-family: var(--font);
+    background: var(--clr-bg);
+    color: var(--clr-text);
+    line-height: 1.6;
+  }
+  .card {
+    background: var(--clr-surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 2.5rem 2.25rem;
+    width: 100%;
+    max-width: 520px;
+    text-align: center;
+  }
+  .brand {
+    color: var(--clr-primary-dark);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    font-size: 0.95rem;
+  }
+  .drop {
+    width: 92px;
+    height: 92px;
+    margin: 1.4rem auto 0.4rem;
+    display: block;
+    animation: bob 3.2s ease-in-out infinite;
+  }
+  .code {
+    font-size: 4.2rem;
+    font-weight: 800;
+    line-height: 1.1;
+    margin: 0.2rem 0 0;
+    background: linear-gradient(90deg, #2e9cca, #1f7a4d);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: #1f7a4d;
+  }
+  h1 {
+    margin: 0.2rem 0 0.8rem;
+    font-size: 1.5rem;
+    color: var(--clr-primary-dark);
+  }
+  p { margin: 0 0 1.4rem; color: var(--clr-text); }
+  .path {
+    display: none;
+    margin: -0.4rem auto 1.4rem;
+    max-width: 100%;
+    padding: 0.35rem 0.7rem;
+    border-radius: 6px;
+    background: var(--clr-bg);
+    border: 1px solid var(--clr-border);
+    color: var(--clr-muted);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8rem;
+    justify-content: center;
+  }
+  .btn {
+    flex: 1 1 160px;
+    max-width: 220px;
+    padding: 0.8rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--clr-primary);
+    background: var(--clr-primary);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--clr-primary-dark); border-color: var(--clr-primary-dark); }
+  .btn.secondary { background: #fff; color: var(--clr-primary); }
+  .btn.secondary:hover { background: var(--clr-bg); }
+  .hint {
+    margin: 1.6rem 0 0;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--clr-border);
+    color: var(--clr-muted);
+    font-size: 0.85rem;
+  }
+  @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+  @media (prefers-reduced-motion: reduce) { .drop { animation: none; } }
+  @media (max-width: 480px) {
+    .card { padding: 2rem 1.25rem; }
+    .code { font-size: 3.4rem; }
+    .btn { max-width: none; flex-basis: 100%; }
+  }
+</style>
+</head>
+<body>
+  <main class="card" role="main">
+    <div class="brand">🌾 BAMBOSA</div>
+
+    <svg class="drop" viewBox="0 0 24 24" aria-hidden="true">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" style="stop-color:#2e9cca"/>
+          <stop offset="1" style="stop-color:#1f7a4d"/>
+        </linearGradient>
+      </defs>
+      <path d="M12 2C12 2 5 10.2 5 15a7 7 0 0014 0C19 10.2 12 2 12 2z" fill="url(#g)"/>
+      <rect x="11.2" y="8.6" width="1.6" height="5.6" rx=".8" fill="#fff"/><circle cx="12" cy="16.9" r="1.05" fill="#fff"/>
+    </svg>
+
+    <div class="code">400</div>
+    <h1>Bad Request</h1>
+    <p>The server couldn&#x27;t understand that request. The link may be incomplete or damaged — check the address and try again.</p>
+
+    <div class="actions">
+      <a class="btn" id="homeLink" href="/">Back to Home</a>
+      <button type="button" class="btn secondary" id="backBtn" onclick="history.back()">Go Back</button>
+    </div>
+
+    <p class="hint">If this keeps happening after you retype the address, please let an association officer know.</p>
+  </main>
+
+<script>
+  (function () {
+    // Work out where the project root is so the buttons work wherever the
+    // project is installed. Nothing here needs editing if the folder is
+    // renamed or moved (only the ErrorDocument lines in the root .htaccess do).
+    var path = location.pathname;
+    var home = document.getElementById('homeLink');
+    var login = document.getElementById('loginLink');
+    function setBase(base) {
+      if (home) home.href = base;
+      if (login) login.href = base + 'login.php';
+    }
+
+    var m = path.match(/^(.*?)\/(?:admin|officer|member|error|assets)(?:\/|$)/);
+    if (m) {
+      setBase(m[1] + '/');                      // inside a known app folder
+    } else if (window.fetch) {
+      // e.g. /irrigation/missing-page: check which parent folder really holds
+      // the error pages (deepest first) and use that as the project root.
+      var segs = path.split('/').filter(Boolean).slice(0, 6);
+      var candidates = [];
+      for (var i = segs.length; i >= 0; i--) {
+        candidates.push('/' + segs.slice(0, i).join('/') + (i ? '/' : ''));
+      }
+      var probe = function (n) {
+        if (n >= candidates.length) return;
+        fetch(candidates[n] + 'error/400.html', { method: 'HEAD', cache: 'no-store' })
+          .then(function (r) { if (r.ok) { setBase(candidates[n]); } else { probe(n + 1); } })
+          .catch(function () { probe(n + 1); });
+      };
+      probe(0);
+    }
+    var back = document.getElementById('backBtn');
+    if (back && history.length <= 1) back.style.display = 'none';
+  })();
+</script>
+</body>
+</html>

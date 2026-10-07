@@ -1,0 +1,21 @@
+# Custom error pages (see error/). Apache serves these instead of its plain
+# default messages, including the 403 from the "Require all denied" rules in
+# config/, includes/ and sql/.
+#
+# ErrorDocument paths are relative to the web root, so they include the
+# folder the project is installed in. This is the ONLY place the folder
+# name appears (the error pages themselves detect it automatically).
+# It assumes the standard XAMPP location (htdocs/bambosa ->
+# http://localhost/bambosa/). If you rename or move the folder, find-and-
+# replace "/bambosa" below with your folder (e.g. "/irrigation", or "" if the
+# project is at the web root: ErrorDocument 404 /error/404.html).
+#
+# Note: keep these as local paths (not full http:// URLs) — a full URL makes
+# Apache redirect instead of answering with the real status code, and for
+# 401 it stops browsers from showing a login prompt.
+ErrorDocument 400 /bambosa/error/400.html
+ErrorDocument 401 /bambosa/error/401.html
+ErrorDocument 403 /bambosa/error/403.html
+ErrorDocument 404 /bambosa/error/404.html
+ErrorDocument 500 /bambosa/error/500.html
+ErrorDocument 503 /bambosa/error/503.html

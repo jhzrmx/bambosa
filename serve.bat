@@ -41,12 +41,13 @@ echo.
 echo Starting PHP built-in server for BAMBOSA...
 echo   Root: %~dp0
 echo   URL:  http://localhost:8000/
+echo   ^(error pages come from error\router.php^)
 echo.
 echo Reminder: MySQL/MariaDB must be running separately, and
 echo config\database.php must be configured, for the app to work.
 echo.
 echo Press Ctrl+C to stop.
 echo.
-php -S localhost:8000 -t "%~dp0"
+php -S localhost:8000 -t "%~dp0" "%~dp0error\router.php"
 
 endlocal

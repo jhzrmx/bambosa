@@ -11,6 +11,12 @@
 
 require_once __DIR__ . '/base_path_utils.php';
 
+// Apply the configured application timezone to PHP (no-op until
+// config/timezone.php is configured). The MySQL half is applied in
+// config/database.php once a connection exists.
+require_once __DIR__ . '/timezone.php';
+apply_php_timezone();
+
 if (session_status() === PHP_SESSION_NONE) {
     // Harden session cookie settings. Cookie path is scoped to the app's
     // own base path (e.g. '/bambosa') rather than always '/', so the

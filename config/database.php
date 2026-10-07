@@ -25,3 +25,8 @@ try {
     error_log('DB Connection Error: ' . $e->getMessage());
     die('Database connection failed. Please try again later.');
 }
+
+// Sync the timezone with PHP's, if config/timezone.php is configured
+// (no-op otherwise — see that file).
+require_once __DIR__ . '/../includes/timezone.php';
+apply_app_timezone($pdo);

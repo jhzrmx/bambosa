@@ -24,6 +24,7 @@ bambosa/
 ├── config/
 │   ├── database.php          # PDO connection (edit credentials here)
 │   ├── smtp.php                # SMTP credentials + settings for outgoing email (edit here)
+│   ├── timezone.php            # APP_TIMEZONE — one timezone for PHP and MySQL (empty = not configured, nothing changes)
 │   └── .htaccess              # Blocks direct browser access
 ├── vendor/
 │   ├── phpmailer/phpmailer/src/  # PHPMailer 6.12.0 core files (Exception/PHPMailer/SMTP.php) — vendored directly, see VERSION.txt inside
@@ -34,6 +35,8 @@ bambosa/
 │   ├── auth.php                 # require_login(), require_role(), CSRF helpers (uses base_path_utils.php for redirects)
 │   ├── members.php              # Member, farm-lot, sector & map data access
 │   ├── admin_users.php           # Admin-only account management (list/add/edit/delete users of any role, safety guards)
+│   ├── timezone.php              # Applies config/timezone.php to PHP + MySQL; clock status for the admin System Clock page
+│   ├── login_logs.php             # Read-only queries on login_logs (search + pagination) for the admin log page
 │   ├── sector_boundaries.php     # Polygon storage, point-in-polygon test, auto-assignment logic
 │   ├── farm_lot_boundaries.php    # Farm lot polygon storage + centroid computation
 │   ├── machinery.php             # Machinery + reservation data access
@@ -49,12 +52,18 @@ bambosa/
 │   │   ├── member_sidebar.php       # Shared member nav (topbar + drawer + overlay)
 │   │   └── .htaccess
 │   └── .htaccess
+├── .htaccess                  # ErrorDocument rules pointing Apache at error/*.html
+├── error/
+│   ├── 400.html, 401.html, 403.html, 404.html, 500.html, 503.html   # Branded, self-contained error pages
+│   └── router.php              # Router for serve.bat's built-in server (404/400/403 behaviour like Apache)
 ├── admin/
 │   ├── dashboard.php           # Protected — role must be 'admin'; account counts + quick actions
 │   ├── profile.php              # Edit own name/contact/email/password
 │   ├── users.php                 # List/filter/search ALL accounts (admins, officers, members); edit/delete links
 │   ├── user_edit.php              # Add a new account / edit any other account (role, status, email, password)
-│   └── user_delete.php             # POST handler for deleting an account
+│   ├── user_delete.php             # POST handler for deleting an account
+│   ├── login_logs.php               # User Login Logs — every user's logins (search + pagination)
+│   └── system_clock.php              # System Clock — PHP vs MySQL timezone/time, sync check
 ├── officer/
 │   ├── dashboard.php           # Protected — role must be 'officer'
 │   ├── profile.php              # Edit own name/contact/password
@@ -110,7 +119,7 @@ bambosa/
 │       ├── dfd_level0.mermaid      # Level 0 / Context Data Flow Diagram
 │       └── dfd_level1.mermaid      # Level 1 Data Flow Diagram (8 major processes)
 └── serve.bat                  # Windows convenience script — runs `php -S localhost:8000`
-                                # from the project root; checks PHP is on PATH first
+                                # (with error/router.php) from the project root; checks PHP is on PATH first
 ```
 
 ## Setup (XAMPP)
@@ -140,7 +149,10 @@ setup steps and what happens if this is skipped.
    need to run anything from `sql/migrations/` separately.
 4. Edit `config/database.php` with your DB username/password (XAMPP
    default is usually `root` with empty password — already set).
-5. Visit `http://localhost/bambosa/`.
+5. Recommended: set `APP_TIMEZONE` in `config/timezone.php` (e.g.
+   `'Asia/Manila'`) so PHP and MySQL use the same clock — see
+   "Timezone configuration" below. Until you do, neither is changed.
+6. Visit `http://localhost/bambosa/`.
 
 **Quick local run without Apache (Windows):** double-click `serve.bat` in
 the project root. It checks that `php` is available on your `PATH` first
@@ -440,6 +452,83 @@ only need to be maintained in one place per role.
   `<div class="dash-shell">`, `include` the relevant sidebar partial,
   add `<main class="dash-main">`, and include `dashboard.js` before `</body>`.
 
+## Timezone configuration
+
+PHP and MySQL each keep their own timezone, and by default they often
+disagree (PHP falls back to UTC unless `php.ini` says otherwise; MySQL
+follows the server's operating-system zone). Anything that mixes the two
+then goes subtly wrong — e.g. `includes/password_reset.php` stamps a reset
+token's expiry with PHP's clock but checks it against MySQL's `NOW()`, and
+`includes/schedules.php` compares schedule end times with `NOW()`.
+
+`config/timezone.php` fixes this with one setting:
+
+```php
+const APP_TIMEZONE = '';   // '' = not configured; e.g. 'Asia/Manila'
+```
+
+- **Not configured → nothing changes.** With the default empty string (or
+  a missing file, or a value that isn't a valid PHP timezone identifier —
+  logged to the PHP error log), neither PHP nor MySQL is touched; both keep
+  whatever the server gave them. A typo can never half-apply.
+- **Configured → both are synced.** `includes/session.php` (loaded first on
+  every page) calls `date_default_timezone_set()`, and `config/database.php`
+  runs `SET time_zone` on each new database connection
+  (`includes/timezone.php`). If MySQL/MariaDB has no timezone tables loaded
+  (common on a fresh XAMPP, where named zones such as `Asia/Manila` aren't
+  recognised), the equivalent UTC offset (`+08:00`) is used automatically.
+- **Verify it:** the admin sidebar has a **System Clock** page (`admin/system_clock.php`) showing
+  PHP's and MySQL's timezone and current time side by side, with a warning
+  if they disagree (and a hint if no timezone is configured yet).
+- **Existing data:** `DATETIME` columns (e.g. schedule start/end) hold the
+  clock time as entered and are not converted. `TIMESTAMP` columns
+  (`created_at`, `login_time`, …) are stored as UTC and shown in the
+  connection's zone, so setting or changing the timezone changes how
+  already-stored `TIMESTAMP` values display. Choose the zone once, early.
+- The file sits in `config/`, protected by `config/.htaccess`
+  (`Require all denied`) like `database.php` and `smtp.php`.
+
+## Custom error pages
+
+Six branded static pages live in `error/`: `400.html` (Bad Request),
+`401.html` (Unauthorized), `403.html` (Forbidden), `404.html` (Not Found),
+`500.html` (Internal Server Error) and `503.html` (Service Unavailable).
+
+- **Self-contained on purpose:** each file has its own inline CSS and icon
+  and depends on no other file, so it still renders from any URL depth and
+  even when the app/database is down. They match the app's green/blue look,
+  work on mobile, and are marked `noindex`.
+- **Wiring (Apache/XAMPP):** the root `.htaccess` maps each status code to
+  its page with `ErrorDocument`. This also gives the 403 responses from the
+  `Require all denied` rules in `config/`, `includes/` and `sql/` a proper
+  page. The `ErrorDocument` paths include the install folder
+  (`/bambosa/error/404.html`) — **this is the only place the folder name is
+  needed.** If you rename or move the project, find-and-replace `/bambosa`
+  in those six lines (use `/error/404.html` etc. at the web root). Keep
+  them as local paths, not full URLs, or Apache redirects instead of
+  returning the real status code.
+- **Buttons:** every page has *Back to Home*, plus *Go Back* (400/404),
+  *Log In* (401/403) or *Try Again* (500/503). A few lines of JS find the
+  project root automatically, so the pages need no editing when the folder
+  changes: a URL inside `admin/`, `officer/`, `member/`, `error/` or
+  `assets/` gives the root directly; otherwise (e.g. `/irrigation/missing`)
+  the page checks which parent folder really contains `error/400.html`
+  (deepest first) with a quick `HEAD` request. Without JavaScript, the
+  buttons fall back to the web root (`/`). The 404 page also shows the
+  address that was requested.
+- **Built-in server (`serve.bat`):** `php -S` ignores `.htaccess`, so
+  `serve.bat` now starts it with `error/router.php`, which returns the 404
+  page for missing files, 400 for malformed paths, and 403 for `.htaccess`
+  files and folders protected by `Require all denied` — matching Apache.
+- **What triggers them:** 404/403/400 happen automatically (missing page,
+  protected folder, bad request). 500 appears when PHP fails fatally with
+  display of errors turned off (keep `display_errors` off outside local
+  development). 503 shows while Apache is overloaded/in maintenance. The app
+  itself redirects logged-out users to the login page, so 401 is only shown
+  if the web server returns it.
+- To preview a page, open `http://localhost/bambosa/error/404.html`
+  directly.
+
 ## Roles at a glance
 
 | | Member | Officer | Admin |
@@ -450,6 +539,8 @@ only need to be maintained in one place per role.
 | Manage members' farm lots, sectors, billing, schedules, machinery, reservations | ❌ | ✅ | ❌ |
 | Approve / deactivate **member** accounts | ❌ | ✅ | ✅ |
 | Add / edit / delete **officer & admin** accounts | ❌ | ❌ | ✅ |
+| View every user's login history (`login_logs`) | ❌ | ❌ | ✅ |
+| Check the PHP/MySQL system clock | ❌ | ❌ | ✅ |
 | Add / edit / delete **member** accounts (incl. role & status changes) | ❌ | ❌ | ✅ |
 | Dashboard | `member/dashboard.php` | `officer/dashboard.php` | `admin/dashboard.php` |
 
@@ -472,6 +563,14 @@ the normal login page and land on `admin/dashboard.php`.
   and ISF bills/payments; records an officer merely created (schedules,
   machinery, recorded payments) are kept with the author cleared. The
   confirmation dialog warns about this.
+- **User Login Logs** (`admin/login_logs.php`, sidebar + dashboard
+  shortcut): read-only history of every successful login by any role,
+  newest first, from the `login_logs` table (written by `login.php`).
+  Shows date/time, user name, email, role, and IP address. The search box
+  matches name, email, role, IP address, or the timestamp text (e.g.
+  `2026-10`), and results are paginated (15 per page). Deleting an account
+  also deletes its log rows (database cascade), so only existing users
+  appear.
 - **Own account**: `admin/profile.php` works like every other profile page
   (name, contact, email — which needs the current password — and password).
 - **Safety rules** (`user_change_guard_error()`): an admin can't delete,

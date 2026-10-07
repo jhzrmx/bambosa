@@ -12,7 +12,7 @@ flowchart TB
     P5["5.0<br/>Rotation Scheduling"]
     P6["6.0<br/>ISF Billing &amp;<br/>Payment Processing"]
     P7["7.0<br/>Dashboard &amp; Calendar<br/>Reporting"]
-    P8["8.0<br/>User Account<br/>Administration"]
+    P8["8.0<br/>User Account<br/>Administration &amp;<br/>Login Log Review"]
 
     D1[("D1 users")]
     D2[("D2 password_resets /<br/>login_logs")]
@@ -82,9 +82,11 @@ flowchart TB
 
     %% ---- User Account Administration (admin only) ----
     Admin -- "add / edit / delete accounts,<br/>set role, status, password" --> P8
-    P8 -- "account list (all roles),<br/>validation &amp; safety-rule errors" --> Admin
+    P8 -- "account list (all roles), login log<br/>pages, validation &amp; safety-rule errors" --> Admin
     P8 <--> D1
     P8 -- "cascade delete of<br/>logs &amp; reset tokens" --> D2
+    D2 -- "login history<br/>(who, when, IP)" --> P8
+    Admin -- "search / page through<br/>login logs" --> P8
     P8 -- "cascade delete of<br/>member's lots" --> D3
     P8 -- "cascade delete of<br/>member's reservations" --> D5
     P8 -- "cascade delete of<br/>member's bills &amp; payments" --> D7

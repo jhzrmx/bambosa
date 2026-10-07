@@ -12,7 +12,7 @@ a hand-drawn image would.
   Admin, SMTP server, OpenStreetMap tiles).
 - `dfd_level1.mermaid` — Level 1 DFD: the system decomposed into its 8
   major processes (auth, farm lots, sectors, machinery, scheduling,
-  billing, dashboard/calendar, admin user-account administration), each
+  billing, dashboard/calendar, admin user-account administration and login-log review), each
   mapped to its real backing table(s).
 
 ## How to view or edit these

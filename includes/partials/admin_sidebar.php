@@ -2,7 +2,7 @@
 /**
  * Admin sidebar partial.
  * Expects $activeNav to be set by the including page to one of:
- * 'dashboard', 'profile', 'users'
+ * 'dashboard', 'profile', 'users', 'login_logs', 'system_clock'
  * Renders: mobile topbar + overlay + the sidebar drawer itself.
  * The including page must open <div class="dash-shell"> before including
  * this, and close it (plus <main class="dash-main">) after.
@@ -42,6 +42,18 @@ $activeNav = $activeNav ?? '';
 	  <path d="M13.07 10.41A5 5 0 0 0 13.07 4.59A3.39 3.39 0 0 1 15 4A3.5 3.5 0 0 1 15 11A3.39 3.39 0 0 1 13.07 10.41M5.5 7.5A3.5 3.5 0 1 1 9 11A3.5 3.5 0 0 1 5.5 7.5M7.5 7.5A1.5 1.5 0 1 0 9 6A1.5 1.5 0 0 0 7.5 7.5M16 17V19H2V17S2 13 9 13 16 17 16 17M14 17C13.86 16.22 12.67 15 9 15S4.07 16.31 4 17M15.95 13A5.32 5.32 0 0 1 18 17V19H22V17S22 13.37 15.94 13Z" />
 	</svg>
 	<span>User Management</span>
+  </a>
+  <a href="<?= base_url('admin/login_logs.php') ?>" class="<?= $activeNav === 'login_logs' ? 'active' : '' ?>">
+	<svg version="1.1" id="mdi-history" fill="white" width="24" height="24" viewBox="0 0 24 24">
+	  <path d="M13.5,8H12V13L16.28,15.54L17,14.33L13.5,12.25V8M13,3A9,9 0 0,0 4,12H1L4.96,16.03L9,12H6A7,7 0 0,1 13,5A7,7 0 0,1 20,12A7,7 0 0,1 13,19C11.07,19 9.32,18.21 8.06,16.94L6.64,18.36C8.27,20 10.5,21 13,21A9,9 0 0,0 22,12A9,9 0 0,0 13,3" />
+	</svg>
+	<span>User Login Logs</span>
+  </a>
+  <a href="<?= base_url('admin/system_clock.php') ?>" class="<?= $activeNav === 'system_clock' ? 'active' : '' ?>">
+	<svg version="1.1" id="mdi-timer-outline" fill="white" width="24" height="24" viewBox="0 0 24 24">
+	  <path d="M12,20A7,7 0 0,1 5,13A7,7 0 0,1 12,6A7,7 0 0,1 19,13A7,7 0 0,1 12,20M19.03,7.39L20.45,5.97C20,5.46 19.55,5 19.04,4.56L17.62,6C16.07,4.74 14.12,4 12,4A9,9 0 0,0 3,13A9,9 0 0,0 12,22C17,22 21,17.97 21,13C21,10.88 20.26,8.93 19.03,7.39M11,14H13V8H11M15,1H9V3H15V1Z" />
+	</svg>
+	<span>System Clock</span>
   </a>
 
   <form method="POST" action="<?= base_url('logout.php') ?>">

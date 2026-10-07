@@ -59,6 +59,7 @@ $activeNav = 'dashboard';
     <div class="btn-row">
       <a href="<?= base_url('admin/user_edit.php') ?>"><button type="button" class="btn-full" style="max-width:220px;">Add New Account</button></a>
       <a href="<?= base_url('admin/users.php') ?>"><button type="button" class="btn-full" style="max-width:220px;">Manage Accounts</button></a>
+      <a href="<?= base_url('admin/login_logs.php') ?>"><button type="button" class="btn-full" style="max-width:220px;">View Login Logs</button></a>
     </div>
   </main>
 </div>
