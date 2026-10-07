@@ -48,6 +48,12 @@ echo config\database.php must be configured, for the app to work.
 echo.
 echo Press Ctrl+C to stop.
 echo.
-php -S localhost:8000 -t "%~dp0" "%~dp0error\router.php"
+REM Run from the project folder and pass RELATIVE paths. Do NOT write "%~dp0" inside
+REM quotes as a program argument: it ends with a backslash, and a backslash directly
+REM before a closing quote is read as an escaped quote, which glued the docroot and
+REM router arguments into one broken path.
+pushd "%~dp0"
+php -S localhost:8000 -t . error\router.php
+popd
 
 endlocal
