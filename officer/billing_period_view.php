@@ -20,8 +20,8 @@ $errors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'generate') {
     if (csrf_verify($_POST['csrf_token'] ?? null)) {
         try {
-            $count = generate_bills_for_period($pdo, $periodId);
-            header('Location: ' . base_url('officer/billing_period_view.php?id=' . $periodId . '&flash=generated&count=' . $count));
+            $count = generate_bills_for_period($pdo, $periodId, $genSummary);
+            header('Location: ' . base_url('officer/billing_period_view.php?id=' . $periodId . '&flash=generated&count=' . $count . '&skipped=' . $genSummary['skipped'] . '&removed=' . $genSummary['removed'] . '&kept=' . $genSummary['kept_with_payments']));
             exit;
         } catch (Exception $e) {
             $errors[] = $e->getMessage();
@@ -67,6 +67,10 @@ $bills = get_bills_for_period($pdo, $periodId, $statusFilter, $searchTerm, $pagi
 $summary = get_period_summary($pdo, $periodId);
 $flash = $_GET['flash'] ?? null;
 $generatedCount = (int) ($_GET['count'] ?? 0);
+$skippedCount   = (int) ($_GET['skipped'] ?? 0);
+$removedCount   = (int) ($_GET['removed'] ?? 0);
+$keptCount      = (int) ($_GET['kept'] ?? 0);
+$noSectorLots   = count_farm_lots_without_sector($pdo);
 $activeNav = 'billing';
 $pageBaseUrl = base_url('officer/billing_period_view.php?id=' . $periodId . ($statusFilter ? '&status=' . $statusFilter : ''));
 
@@ -102,7 +106,18 @@ $recordingBillId = isset($_GET['pay']) ? (int) $_GET['pay'] : null;
     </div>
 
     <?php if ($flash === 'generated'): ?>
-      <div class="alert alert-success"><?= $generatedCount ?> bill(s) generated/updated for this period.</div>
+      <div class="alert alert-success">
+        <div><?= $generatedCount ?> bill(s) generated/updated for this period.</div>
+        <?php if ($skippedCount > 0): ?>
+          <div><?= $skippedCount ?> farm lot(s) not inside any sector were not billed.</div>
+        <?php endif; ?>
+        <?php if ($removedCount > 0): ?>
+          <div><?= $removedCount ?> unpaid bill(s) for lots no longer in a sector were removed.</div>
+        <?php endif; ?>
+        <?php if ($keptCount > 0): ?>
+          <div><?= $keptCount ?> bill(s) for lots no longer in a sector were kept because payments were already recorded — please review.</div>
+        <?php endif; ?>
+      </div>
     <?php elseif ($flash === 'payment_recorded'): ?>
       <div class="alert alert-success">Payment recorded.</div>
     <?php endif; ?>
@@ -114,11 +129,15 @@ $recordingBillId = isset($_GET['pay']) ? (int) $_GET['pay'] : null;
     <?php endif; ?>
 
     <?php if ($period['status'] === 'open'): ?>
-      <form method="POST" style="margin-bottom:1.5rem;" onsubmit="return confirm('Generate bills for every registered farm lot at ₱<?= number_format((float) $period['rate_per_ha'], 2) ?>/ha? Existing bills in this period will have their amount due refreshed; recorded payments are kept.');">
+      <form method="POST" style="margin-bottom:1.5rem;" onsubmit="return confirm('Generate bills for every farm lot that is inside a sector at ₱<?= number_format((float) $period['rate_per_ha'], 2) ?>/ha? Lots not in any sector are not billed. Existing bills in this period will have their amount due refreshed; recorded payments are kept.');">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
         <input type="hidden" name="action" value="generate">
         <button type="submit" class="btn-full" style="max-width:260px;">Generate / Refresh Bills</button>
       </form>
+      <p class="muted-note" style="margin-top:-0.8rem; margin-bottom:1.5rem;">
+        Only farm lots inside a sector are billed.<?php if ($noSectorLots > 0): ?>
+          <strong><?= $noSectorLots ?></strong> farm lot<?= $noSectorLots === 1 ? ' is' : 's are' ?> not in any sector and will not be billed.<?php endif; ?>
+      </p>
     <?php else: ?>
       <p class="muted-note">This period is closed. Reopen it from the Billing Periods page to generate more bills.</p>
     <?php endif; ?>

@@ -57,8 +57,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'gener
     $periodId = (int) ($_POST['period_id'] ?? 0);
     if (csrf_verify($_POST['csrf_token'] ?? null) && $periodId > 0) {
         try {
-            $count = generate_bills_for_period($pdo, $periodId);
-            header('Location: ' . base_url('officer/billing_period_view.php?id=' . $periodId . '&flash=generated&count=' . $count));
+            $count = generate_bills_for_period($pdo, $periodId, $genSummary);
+            header('Location: ' . base_url('officer/billing_period_view.php?id=' . $periodId . '&flash=generated&count=' . $count . '&skipped=' . $genSummary['skipped'] . '&removed=' . $genSummary['removed'] . '&kept=' . $genSummary['kept_with_payments']));
             exit;
         } catch (Exception $e) {
             $errors[] = $e->getMessage();
@@ -113,8 +113,9 @@ $pageBaseUrl = base_url('officer/billing_periods.php');
     <h1>ISF Billing Periods</h1>
     <p>
       Open a billing period (e.g. a cropping season) with a rate per hectare, then generate
-      bills for every registered farm lot. Land area and rate are locked in at generation
-      time, so later corrections to a farm lot don't silently change past bills.
+      bills for every farm lot that is inside a sector (lots not assigned to any sector are
+      not billed). Land area and rate are locked in at generation time, so later corrections
+      to a farm lot don't silently change past bills.
     </p>
 
     <?php if ($flash === 'saved'): ?>

@@ -1075,13 +1075,19 @@ already been converted to cash.
   rather than as one global setting, since real ISF rates commonly change
   season to season.
 - **Generating bills** (`officer/billing_period_view.php` →
-  "Generate / Refresh Bills") creates one bill per registered farm lot:
-  `amount_due = land_area_ha × rate_per_ha`. Both values are **snapshotted**
+  "Generate / Refresh Bills") creates one bill per farm lot **that is inside
+  a sector** (`farm_lots.sector_id IS NOT NULL`): `amount_due = land_area_ha ×
+  rate_per_ha`. Lots that aren't assigned to any sector are **not billed**
+  — the page shows how many are being skipped. Both values are **snapshotted**
   onto the bill at generation time, so correcting a farm lot's area later
   doesn't silently rewrite historical bills. Re-running generation for the
   same period updates `amount_due` for any lot whose area changed, but
   never touches `amount_paid` — recorded payments are never lost by
-  regenerating.
+  regenerating. Regenerating also cleans up after sector changes: a bill in
+  this period for a lot that is no longer in a sector is removed if nothing
+  has been paid on it; if payments exist it is **kept** and flagged for
+  review (a financial record is never deleted silently). Closed periods are
+  never changed.
 - **Payments** (`isf_payments` table) are logged individually against a
   bill rather than just overwriting a running total, so there's a full
   audit trail (date, amount, who recorded it, optional notes). A bill's

@@ -11,6 +11,10 @@
  * individually against a bill so partial payments have an audit trail;
  * a bill's status (unpaid/partial/paid) is derived from amount_paid vs
  * amount_due and kept in sync whenever a payment is recorded.
+ *
+ * Only farm lots that are INSIDE a sector (farm_lots.sector_id IS NOT NULL)
+ * are billed. A lot that isn't assigned to any sector — not within a drawn
+ * sector boundary and not manually assigned — is skipped.
  */
 
 /**
@@ -128,14 +132,28 @@ function delete_billing_period(PDO $pdo, int $periodId): void
 }
 
 /**
- * Generates (or regenerates) bills for every farm lot for a given billing
- * period, using that period's rate_per_ha. If a bill already exists for a
- * lot in this period (unique key on period_id+lot_id), its land_area_ha,
- * rate_per_ha, and amount_due are refreshed to current values — but
- * amount_paid/status are left untouched so recorded payments are never
- * lost by re-generating. Returns the number of bills created or updated.
+ * Generates (or regenerates) bills for every farm lot that is inside a
+ * sector (farm_lots.sector_id IS NOT NULL) for a given billing period,
+ * using that period's rate_per_ha. Lots with no sector are NOT billed.
+ *
+ * If a bill already exists for a lot in this period (unique key on
+ * period_id+lot_id), its land_area_ha, rate_per_ha, and amount_due are
+ * refreshed to current values — but amount_paid/status are left untouched
+ * so recorded payments are never lost by re-generating.
+ *
+ * Clean-up on regeneration: if a lot that was billed earlier is no longer
+ * in a sector (its sector was removed/deleted, or it was unassigned), its
+ * bill in this period is removed — but ONLY if nothing has been paid on it.
+ * A bill that already has payments is kept (it's a financial record) and
+ * reported in $summary['kept_with_payments'] so an officer can review it.
+ *
+ * Returns the number of bills created or updated. Optionally fills
+ * $summary with:
+ *   'skipped'            lots not billed because they're in no sector
+ *   'removed'            stale unpaid bills deleted by this run
+ *   'kept_with_payments' bills for no-sector lots kept because they have payments
  */
-function generate_bills_for_period(PDO $pdo, int $periodId): int
+function generate_bills_for_period(PDO $pdo, int $periodId, ?array &$summary = null): int
 {
     $period = get_billing_period($pdo, $periodId);
     if (!$period) {
@@ -148,7 +166,7 @@ function generate_bills_for_period(PDO $pdo, int $periodId): int
     $rate = (float) $period['rate_per_ha'];
 
     $lots = $pdo->query(
-        'SELECT lot_id, user_id, land_area_ha FROM farm_lots'
+        'SELECT lot_id, user_id, land_area_ha FROM farm_lots WHERE sector_id IS NOT NULL'
     )->fetchAll();
 
     $upsert = $pdo->prepare(
@@ -160,28 +178,68 @@ function generate_bills_for_period(PDO $pdo, int $periodId): int
             amount_due   = VALUES(amount_due)'
     );
 
-    $count = 0;
-    foreach ($lots as $lot) {
-        $area = (float) $lot['land_area_ha'];
-        $amountDue = round($area * $rate, 2);
+    $pdo->beginTransaction();
+    try {
+        // Remove bills for lots that are no longer in any sector, unless a
+        // payment has been recorded against them.
+        $removeStale = $pdo->prepare(
+            'DELETE b FROM isf_bills b
+             JOIN farm_lots fl ON fl.lot_id = b.lot_id
+             WHERE b.period_id = :period_id
+               AND fl.sector_id IS NULL
+               AND b.amount_paid <= 0
+               AND NOT EXISTS (SELECT 1 FROM isf_payments pay WHERE pay.bill_id = b.bill_id)'
+        );
+        $removeStale->execute(['period_id' => $periodId]);
+        $removed = $removeStale->rowCount();
 
-        $upsert->execute([
-            'period_id'    => $periodId,
-            'lot_id'       => $lot['lot_id'],
-            'user_id'      => $lot['user_id'],
-            'land_area_ha' => $area,
-            'rate_per_ha'  => $rate,
-            'amount_due'   => $amountDue,
-        ]);
-        $count++;
+        $count = 0;
+        foreach ($lots as $lot) {
+            $area = (float) $lot['land_area_ha'];
+            $amountDue = round($area * $rate, 2);
+
+            $upsert->execute([
+                'period_id'    => $periodId,
+                'lot_id'       => $lot['lot_id'],
+                'user_id'      => $lot['user_id'],
+                'land_area_ha' => $area,
+                'rate_per_ha'  => $rate,
+                'amount_due'   => $amountDue,
+            ]);
+            $count++;
+        }
+
+        // Re-sync status for any bill whose amount_due changed (e.g. a farm
+        // lot's area was edited after the previous generation), in case that
+        // pushes a previously-"paid" bill back to "partial".
+        recalculate_all_bill_statuses_for_period($pdo, $periodId);
+
+        $pdo->commit();
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        throw $e;
     }
 
-    // Re-sync status for any bill whose amount_due changed (e.g. a farm
-    // lot's area was edited after the previous generation), in case that
-    // pushes a previously-"paid" bill back to "partial".
-    recalculate_all_bill_statuses_for_period($pdo, $periodId);
+    $keptStmt = $pdo->prepare(
+        'SELECT COUNT(*) FROM isf_bills b
+         JOIN farm_lots fl ON fl.lot_id = b.lot_id
+         WHERE b.period_id = :period_id AND fl.sector_id IS NULL'
+    );
+    $keptStmt->execute(['period_id' => $periodId]);
+
+    $summary = [
+        'skipped'            => count_farm_lots_without_sector($pdo),
+        'removed'            => (int) $removed,
+        'kept_with_payments' => (int) $keptStmt->fetchColumn(),
+    ];
 
     return $count;
+}
+
+/** Number of farm lots not assigned to any sector (these are not billed). */
+function count_farm_lots_without_sector(PDO $pdo): int
+{
+    return (int) $pdo->query('SELECT COUNT(*) FROM farm_lots WHERE sector_id IS NULL')->fetchColumn();
 }
 
 /** Recomputes status for every bill in a period based on amount_paid vs amount_due. */
