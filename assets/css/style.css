@@ -1911,3 +1911,6 @@ footer.site-footer {
   .ip-rows { grid-template-columns: 7rem minmax(0, 1fr); gap: 0.5rem 0.8rem; }
   .ip-card { padding: 1.1rem 1rem; }
 }
+
+/* Keep an anchor-scrolled form clear of the sticky mobile top bar. */
+.payment-form { scroll-margin-top: 5rem; }

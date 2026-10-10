@@ -1112,6 +1112,16 @@ already been converted to cash.
   has been paid on it; if payments exist it is **kept** and flagged for
   review (a financial record is never deleted silently). Closed periods are
   never changed.
+- **Recording a payment keeps your place:** the **Record Payment** link on
+  `officer/billing_period_view.php` carries the current status filter,
+  search term **and page number** (`?id=…&status=…&q=…&page=…&pay=…`), so
+  the bill's row is still on screen and its form opens (before, a bill on
+  page 2+ was hidden because the link dropped `page`). The link ends in
+  `#payment-form-<bill_id>` so the browser scrolls straight to the form
+  (kept clear of the mobile top bar), and the amount field is focused. The
+  form posts back to that same URL, so after **Save Payment** the officer
+  returns to the same page of the same filtered list, and validation errors
+  appear inside the form with the typed values kept.
 - **Payments** (`isf_payments` table) are logged individually against a
   bill rather than just overwriting a running total, so there's a full
   audit trail (date, amount, who recorded it, optional notes). A bill's

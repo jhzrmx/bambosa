@@ -16,6 +16,30 @@ if (!$period) {
 }
 
 $errors = [];
+$paymentErrors = []; // shown inside the "Record Payment" form so they're visible where the page scrolls to
+
+/**
+ * URL of this page that keeps the officer's place in the bill list (status
+ * filter, search term, page number). $anchor is a '#fragment' the browser
+ * scrolls to after loading.
+ */
+function billing_view_url(int $periodId, array $params = [], string $anchor = ''): string
+{
+    return base_url('officer/billing_period_view.php?' . http_build_query(['id' => $periodId] + $params)) . $anchor;
+}
+
+// The list state as requested (used for redirects that happen before the list is built).
+$listState = [];
+$rawStatus = $_GET['status'] ?? '';
+if (in_array($rawStatus, ['unpaid', 'partial', 'paid'], true)) {
+    $listState['status'] = $rawStatus;
+}
+if (get_search_term() !== null) {
+    $listState['q'] = get_search_term();
+}
+if (get_current_page() > 1) {
+    $listState['page'] = get_current_page();
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'generate') {
     if (csrf_verify($_POST['csrf_token'] ?? null)) {
@@ -31,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'gener
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'record_payment') {
     if (!csrf_verify($_POST['csrf_token'] ?? null)) {
-        $errors[] = 'Invalid form submission. Please try again.';
+        $paymentErrors[] = 'Invalid form submission. Please try again.';
     }
 
     $billId       = (int) ($_POST['bill_id'] ?? 0);
@@ -40,22 +64,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'recor
     $paymentNotes = trim($_POST['payment_notes'] ?? '');
 
     if (!is_numeric($amount) || (float) $amount <= 0) {
-        $errors[] = 'Payment amount must be a positive number.';
+        $paymentErrors[] = 'Payment amount must be a positive number.';
     }
     if (!$paymentDate) {
-        $errors[] = 'Please provide a payment date.';
+        $paymentErrors[] = 'Please provide a payment date.';
     }
 
-    if (empty($errors)) {
+    if (empty($paymentErrors)) {
         try {
             record_payment($pdo, $billId, (float) $amount, $paymentDate, $paymentNotes, (int) $_SESSION['user_id']);
-            header('Location: ' . base_url('officer/billing_period_view.php?id=' . $periodId . '&flash=payment_recorded'));
+            // Return to the SAME page of the same filtered/searched list.
+            header('Location: ' . billing_view_url($periodId, $listState + ['flash' => 'payment_recorded']));
             exit;
         } catch (Exception $e) {
-            $errors[] = $e->getMessage();
+            $paymentErrors[] = $e->getMessage();
         }
     }
 }
+
+// If a bill_id is present, we're opening the "record payment" mini-form for that bill inline.
+$recordingBillId = isset($_GET['pay']) ? (int) $_GET['pay'] : null;
 
 $statusFilter = $_GET['status'] ?? '';
 $statusFilter = in_array($statusFilter, ['unpaid', 'partial', 'paid'], true) ? $statusFilter : null;
@@ -64,6 +92,15 @@ $searchTerm = get_search_term();
 $totalBills = count_bills_for_period($pdo, $periodId, $statusFilter, $searchTerm);
 $pagination = build_pagination($totalBills, get_current_page());
 $bills = get_bills_for_period($pdo, $periodId, $statusFilter, $searchTerm, $pagination['per_page'], $pagination['offset']);
+
+// The list state as actually shown (page number clamped to what exists) — used for
+// the Record Payment / Cancel links and the form's action so they never lose the page.
+$viewState = [];
+if ($statusFilter) { $viewState['status'] = $statusFilter; }
+if ($searchTerm)   { $viewState['q'] = $searchTerm; }
+if ($pagination['current_page'] > 1) { $viewState['page'] = $pagination['current_page']; }
+
+$payFormVisible = $recordingBillId !== null && in_array($recordingBillId, array_map('intval', array_column($bills, 'bill_id')), true);
 $summary = get_period_summary($pdo, $periodId);
 $flash = $_GET['flash'] ?? null;
 $generatedCount = (int) ($_GET['count'] ?? 0);
@@ -74,8 +111,6 @@ $noSectorLots   = count_farm_lots_without_sector($pdo);
 $activeNav = 'billing';
 $pageBaseUrl = base_url('officer/billing_period_view.php?id=' . $periodId . ($statusFilter ? '&status=' . $statusFilter : ''));
 
-// If a bill_id is present, we're opening the "record payment" mini-form for that bill inline.
-$recordingBillId = isset($_GET['pay']) ? (int) $_GET['pay'] : null;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -122,9 +157,10 @@ $recordingBillId = isset($_GET['pay']) ? (int) $_GET['pay'] : null;
       <div class="alert alert-success">Payment recorded.</div>
     <?php endif; ?>
 
-    <?php if (!empty($errors)): ?>
+    <?php $topErrors = $payFormVisible ? $errors : array_merge($errors, $paymentErrors); ?>
+    <?php if (!empty($topErrors)): ?>
       <div class="alert alert-error">
-        <?php foreach ($errors as $err): ?><div><?= htmlspecialchars($err) ?></div><?php endforeach; ?>
+        <?php foreach ($topErrors as $err): ?><div><?= htmlspecialchars($err) ?></div><?php endforeach; ?>
       </div>
     <?php endif; ?>
 
@@ -185,7 +221,7 @@ $recordingBillId = isset($_GET['pay']) ? (int) $_GET['pay'] : null;
             <td><span class="status-badge <?= $b['status'] === 'paid' ? 'status-active' : ($b['status'] === 'partial' ? 'status-pending' : 'status-inactive') ?>"><?= htmlspecialchars($b['status']) ?></span></td>
             <td class="actions-cell">
               <?php if ($b['status'] !== 'paid'): ?>
-                <a href="<?= base_url('officer/billing_period_view.php?id=' . $periodId . '&pay=' . (int) $b['bill_id']) ?>" class="link-btn">Record Payment</a>
+                <a href="<?= htmlspecialchars(billing_view_url($periodId, $viewState + ['pay' => (int) $b['bill_id']], '#payment-form-' . (int) $b['bill_id'])) ?>" class="link-btn">Record Payment</a>
               <?php else: ?>
                 <span class="muted-note">Fully paid</span>
               <?php endif; ?>
@@ -194,7 +230,14 @@ $recordingBillId = isset($_GET['pay']) ? (int) $_GET['pay'] : null;
           <?php if ($recordingBillId === (int) $b['bill_id']): ?>
             <tr>
               <td colspan="8" style="background:#fafcfa;">
-                <form method="POST" class="inline-card-form" style="box-shadow:none; border:1px solid var(--clr-border); margin:0.5rem 0;">
+                <form method="POST" id="payment-form-<?= (int) $b['bill_id'] ?>" class="inline-card-form payment-form"
+                      action="<?= htmlspecialchars(billing_view_url($periodId, $viewState + ['pay' => (int) $b['bill_id']], '#payment-form-' . (int) $b['bill_id'])) ?>"
+                      style="box-shadow:none; border:1px solid var(--clr-border); margin:0.5rem 0;">
+                  <?php if (!empty($paymentErrors)): ?>
+                    <div class="alert alert-error">
+                      <?php foreach ($paymentErrors as $err): ?><div><?= htmlspecialchars($err) ?></div><?php endforeach; ?>
+                    </div>
+                  <?php endif; ?>
                   <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
                   <input type="hidden" name="action" value="record_payment">
                   <input type="hidden" name="bill_id" value="<?= (int) $b['bill_id'] ?>">
@@ -208,22 +251,24 @@ $recordingBillId = isset($_GET['pay']) ? (int) $_GET['pay'] : null;
                   <div class="form-row">
                     <div class="form-group">
                       <label for="amount_<?= (int) $b['bill_id'] ?>">Amount (₱)</label>
-                      <input type="number" step="0.01" min="0.01" id="amount_<?= (int) $b['bill_id'] ?>" name="amount" required
+                      <input type="number" step="0.01" min="0.01" id="amount_<?= (int) $b['bill_id'] ?>" name="amount" required autofocus
+                             value="<?= !empty($paymentErrors) ? htmlspecialchars((string) ($_POST['amount'] ?? '')) : '' ?>"
                              max="<?= number_format((float) $b['amount_due'] - (float) $b['amount_paid'], 2, '.', '') ?>">
                     </div>
                     <div class="form-group">
                       <label for="payment_date_<?= (int) $b['bill_id'] ?>">Payment Date</label>
-                      <input type="date" id="payment_date_<?= (int) $b['bill_id'] ?>" name="payment_date" required value="<?= date('Y-m-d') ?>">
+                      <input type="date" id="payment_date_<?= (int) $b['bill_id'] ?>" name="payment_date" required value="<?= htmlspecialchars(!empty($paymentErrors) && !empty($_POST['payment_date']) ? (string) $_POST['payment_date'] : date('Y-m-d')) ?>">
                     </div>
                   </div>
 
                   <div class="form-group">
                     <label for="payment_notes_<?= (int) $b['bill_id'] ?>">Notes (optional)</label>
-                    <input type="text" id="payment_notes_<?= (int) $b['bill_id'] ?>" name="payment_notes" placeholder="e.g. OR #1234, cash">
+                    <input type="text" id="payment_notes_<?= (int) $b['bill_id'] ?>" name="payment_notes" placeholder="e.g. OR #1234, cash"
+                           value="<?= !empty($paymentErrors) ? htmlspecialchars((string) ($_POST['payment_notes'] ?? '')) : '' ?>">
                   </div>
 
                   <button type="submit" class="btn-full" style="max-width:200px;">Save Payment</button>
-                  <a href="<?= base_url('officer/billing_period_view.php?id=' . $periodId) ?>" style="margin-left:1rem;">Cancel</a>
+                  <a href="<?= htmlspecialchars(billing_view_url($periodId, $viewState)) ?>" style="margin-left:1rem;">Cancel</a>
                 </form>
               </td>
             </tr>
