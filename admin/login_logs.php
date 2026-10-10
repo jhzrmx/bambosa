@@ -34,7 +34,7 @@ $activeNav = 'login_logs';
 
   <main class="dash-main">
     <h1>User Login Logs</h1>
-    <p>Every successful login by any admin, officer, or member, newest first.</p>
+    <p>Every successful login by any admin, officer, or member, newest first. Click an IP address to see where it is and who runs it.</p>
 
     <?php render_search_box(base_url('admin/login_logs.php'), $searchTerm, 'Search by name, email, role, IP address, or date…'); ?>
 
@@ -58,7 +58,13 @@ $activeNav = 'login_logs';
             <td><?= htmlspecialchars($log['full_name']) ?></td>
             <td><?= htmlspecialchars($log['email']) ?></td>
             <td><span class="role-badge role-<?= htmlspecialchars($log['role']) ?>"><?= htmlspecialchars($log['role']) ?></span></td>
-            <td><?= htmlspecialchars($log['ip_address'] ?? '—') ?></td>
+            <td>
+              <?php if (!empty($log['ip_address'])): ?>
+                <a class="ip-link" href="<?= base_url('admin/ip.php?address=' . urlencode($log['ip_address'])) ?>" title="View details for this IP address"><?= htmlspecialchars($log['ip_address']) ?></a>
+              <?php else: ?>
+                —
+              <?php endif; ?>
+            </td>
           </tr>
         <?php endforeach; endif; ?>
       </tbody>

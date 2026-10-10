@@ -4,6 +4,7 @@ flowchart TB
     Admin(["Admin"])
     SMTP(["SMTP Email Server"])
     OSM(["OpenStreetMap / Map Tiles"])
+    IPAPI(["ip-api.com<br/>IP Geolocation"])
 
     P1["1.0<br/>Authentication &amp;<br/>Account Management"]
     P2["2.0<br/>Member &amp; Farm Lot<br/>Management"]
@@ -12,7 +13,7 @@ flowchart TB
     P5["5.0<br/>Rotation Scheduling"]
     P6["6.0<br/>ISF Billing &amp;<br/>Payment Processing"]
     P7["7.0<br/>Dashboard &amp; Calendar<br/>Reporting"]
-    P8["8.0<br/>User Account<br/>Administration &amp;<br/>Login Log Review"]
+    P8["8.0<br/>User Account<br/>Administration,<br/>Login Logs &amp; IP Lookup"]
 
     D1[("D1 users")]
     D2[("D2 password_resets /<br/>login_logs")]
@@ -86,6 +87,10 @@ flowchart TB
     P8 <--> D1
     P8 -- "cascade delete of<br/>logs &amp; reset tokens" --> D2
     D2 -- "login history<br/>(who, when, IP)" --> P8
+    P8 -- "IP address from a login log" --> IPAPI
+    IPAPI -- "location, ISP &amp; network info" --> P8
+    P8 -- "tile requests (IP map)" --> OSM
+    OSM -- "map tiles" --> P8
     Admin -- "search / page through<br/>login logs" --> P8
     P8 -- "cascade delete of<br/>member's lots" --> D3
     P8 -- "cascade delete of<br/>member's reservations" --> D5

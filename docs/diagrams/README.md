@@ -9,10 +9,10 @@ a hand-drawn image would.
   `sql/bambosa_db.sql` (every table, column, PK/FK/unique key).
 - `dfd_level0.mermaid` — Level 0 (Context) Data Flow Diagram: the whole
   system as one process, with its external entities (Member, Officer,
-  Admin, SMTP server, OpenStreetMap tiles).
+  Admin, SMTP server, OpenStreetMap tiles, ip-api.com IP geolocation).
 - `dfd_level1.mermaid` — Level 1 DFD: the system decomposed into its 8
   major processes (auth, farm lots, sectors, machinery, scheduling,
-  billing, dashboard/calendar, admin user-account administration and login-log review), each
+  billing, dashboard/calendar, admin user-account administration, login-log review and IP lookup), each
   mapped to its real backing table(s).
 
 ## How to view or edit these

@@ -36,6 +36,7 @@ bambosa/
 │   ├── members.php              # Member, farm-lot, sector & map data access
 │   ├── admin_users.php           # Admin-only account management (list/add/edit/delete users of any role, safety guards)
 │   ├── timezone.php              # Applies config/timezone.php to PHP + MySQL; clock status for the admin System Clock page
+│   ├── ip_lookup.php              # ip-api.com lookup for the admin IP details page (validation, 24h cache)
 │   ├── login_logs.php             # Read-only queries on login_logs (search + pagination) for the admin log page
 │   ├── sector_boundaries.php     # Polygon storage, point-in-polygon test, auto-assignment logic
 │   ├── farm_lot_boundaries.php    # Farm lot polygon storage + centroid computation
@@ -63,6 +64,7 @@ bambosa/
 │   ├── user_edit.php              # Add a new account / edit any other account (role, status, email, password)
 │   ├── user_delete.php             # POST handler for deleting an account
 │   ├── login_logs.php               # User Login Logs — every user's logins (search + pagination)
+│   ├── ip.php                        # IP details: map (left) + location/ISP/network info (right) for ?address=…
 │   └── system_clock.php              # System Clock — PHP vs MySQL timezone/time, sync check
 ├── officer/
 │   ├── dashboard.php           # Protected — role must be 'officer'
@@ -571,6 +573,28 @@ the normal login page and land on `admin/dashboard.php`.
   `2026-10`), and results are paginated (15 per page). Deleting an account
   also deletes its log rows (database cascade), so only existing users
   appear.
+- **IP address details** (`admin/ip.php?address=…`): every IP address in
+  the login logs is a link to this page — a map on the left (stacked on top
+  on phones) and the details on the right: country, region, city, ZIP,
+  coordinates, timezone and local time there, currency, ISP, organization,
+  AS number/name, reverse DNS, and Yes/No flags for mobile network, proxy/VPN
+  and hosting/data center. Data comes from the free
+  [ip-api.com](https://ip-api.com/docs) JSON API, looked up **server-side**
+  by `includes/ip_lookup.php` (so it stays admin-only and avoids browser
+  mixed-content blocks). Things to know:
+  - Local/private addresses (`127.0.0.1`, `::1`, `192.168.x.x`, …) have no
+    public location, so they're not sent to the API; the page explains this.
+    On a local install most logins will show one of these.
+  - The free endpoint is **HTTP only** (the looked-up IP travels
+    unencrypted; nothing else is sent), limited to about 45 requests per
+    minute, and meant for non-commercial use. Results are cached for 24
+    hours in the system temp folder; a rate-limit or network failure shows a
+    friendly message with a "Try again" link. For HTTPS/commercial use, switch
+    to a paid ip-api key (`IP_API_BASE` in `includes/ip_lookup.php`).
+  - IP geolocation is approximate (city/ISP level), so the map shows the
+    point plus a ~5 km circle rather than a precise pin.
+  - The address in the URL is validated with `filter_var()` before use, and
+    everything shown is HTML-escaped.
 - **Own account**: `admin/profile.php` works like every other profile page
   (name, contact, email — which needs the current password — and password).
 - **Safety rules** (`user_change_guard_error()`): an admin can't delete,

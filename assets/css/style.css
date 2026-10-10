@@ -1851,3 +1851,63 @@ footer.site-footer {
 
 .filter-tabs.wrap { flex-wrap: wrap; }
 .you-tag { font-size: 0.75rem; color: var(--clr-muted); font-weight: 600; margin-left: 0.4rem; }
+
+/* ---------- Admin: IP address details (admin/ip.php) ---------- */
+.ip-link { font-weight: 600; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+.ip-link:hover { text-decoration-style: solid; }
+
+/* Map on the left, details on the right; stacks (map first) on small screens. */
+.ip-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 1.2rem;
+  align-items: stretch;
+}
+.ip-map-col { position: relative; min-height: 440px; }
+.ip-map-col .ip-map { position: absolute; inset: 0; height: 100%; }
+
+.ip-card {
+  background: var(--clr-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.3rem 1.4rem;
+}
+.ip-address { font-size: 1.35rem; font-weight: 700; color: var(--clr-primary-dark); overflow-wrap: anywhere; }
+.ip-place { color: var(--clr-muted); margin-top: 0.15rem; }
+.ip-card h2 {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--clr-muted);
+  margin: 1.3rem 0 0.5rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--clr-border);
+}
+.ip-rows {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 0.55rem 1rem;
+  margin: 0;
+}
+.ip-rows dt { color: var(--clr-muted); font-size: 0.88rem; }
+.ip-rows dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+
+.ip-flag {
+  display: inline-block;
+  padding: 0.15rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.ip-flag-no  { background: #e8f6ee; color: #1f7a4d; }
+.ip-flag-yes { background: #fdf0d8; color: #9a6a0a; }
+
+@media (max-width: 860px) {
+  .ip-layout { grid-template-columns: 1fr; }
+  .ip-map-col { min-height: 0; }
+  .ip-map-col .ip-map { position: relative; inset: auto; height: 320px; }
+}
+@media (max-width: 480px) {
+  .ip-rows { grid-template-columns: 7rem minmax(0, 1fr); gap: 0.5rem 0.8rem; }
+  .ip-card { padding: 1.1rem 1rem; }
+}

@@ -4,6 +4,7 @@ flowchart TB
     Admin(["Admin"])
     SMTP(["SMTP Email Server"])
     OSM(["OpenStreetMap / Map Tiles"])
+    IPAPI(["ip-api.com<br/>IP Geolocation"])
 
     System["0.0<br/>BAMBOSA<br/>Irrigation Management System"]
 
@@ -18,6 +19,9 @@ flowchart TB
 
     System -- "reset link / activation notice" --> SMTP
     SMTP -- "delivery result" --> System
+
+    System -- "IP address to look up<br/>(admin only)" --> IPAPI
+    IPAPI -- "location, ISP &amp; network info" --> System
 
     System -- "map tile requests" --> OSM
     OSM -- "map tiles" --> System
