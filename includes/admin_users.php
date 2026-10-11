@@ -156,8 +156,8 @@ function admin_update_user(PDO $pdo, int $userId, string $fullName, string $emai
 /**
  * Permanently deletes an account. Database cascades also remove that user's
  * farm lots, reservations, ISF bills/payments, login logs and reset tokens;
- * records they merely created/recorded (schedules, machinery, payments)
- * are kept with the author set to NULL.
+ * records they merely created/recorded (schedules, billing periods,
+ * payments, auto-assignment log entries) are kept with the author set to NULL.
  */
 function delete_user(PDO $pdo, int $userId): void
 {

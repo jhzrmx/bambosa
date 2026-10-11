@@ -15,7 +15,7 @@
  * rendered server-side and embedded inline (see dashboard.php), so the
  * calendar has content immediately even if JS is slow to kick in.
  *
- * Accessible to any logged-in user (member or officer) — results are
+ * Accessible to logged-in officers and members (admins get a 403) — results are
  * scoped to what that role/user is allowed to see, same as the dashboards
  * themselves.
  */
@@ -47,6 +47,14 @@ if ($month < 1 || $month > 12 || $year < 2000 || $year > 2100) {
 
 $userId = (int) $_SESSION['user_id'];
 $role = current_role();
+
+// The calendar exists on the officer and member dashboards only (admins have
+// no schedules/reservations of their own to show).
+if ($role !== 'officer' && $role !== 'member') {
+    http_response_code(403);
+    echo json_encode(['error' => 'Not available for this account type']);
+    exit;
+}
 
 if ($role === 'officer') {
     $sectorIds = null; // officers see every sector's schedule

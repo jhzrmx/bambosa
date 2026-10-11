@@ -1,1272 +1,864 @@
 # BAMBOSA Irrigation Management Platform
 
-This build now covers the platform end-to-end: **authentication**,
-**Epic 2: Member & Farm Management**, **Sector Management** (CRUD),
-a simplified **Machinery Reservation** module, a simplified **Rotation
-Scheduling** viewer, **Epic 3: ISF Billing** (billing periods, bill
-generation, payment tracking), a **Farm Map view** (web-based equivalent
-of the paper's QGIS mapping), and a fully **responsive UI** (mobile-friendly
-slide-in sidebar drawer). Every module described in Chapter 1's specific
-objectives is now implemented, in simplified form where noted below.
+BAMBOSA is a web platform for running an irrigation association (built
+around Barangay Bikal's setup): member and farm-lot records, sector maps,
+water-rotation schedules, machinery reservations, and irrigation service
+fee (ISF) billing — with separate, role-based workspaces for **admins**,
+**officers** and **members**.
 
-## Folder Structure
+It is plain PHP + MySQL/MariaDB with vanilla JavaScript (no framework, no
+build step, no Composer), so it runs on a stock XAMPP install.
+
+## Contents
+
+1. [Features at a glance](#1-features-at-a-glance)
+2. [Getting started](#2-getting-started)
+3. [Project structure](#3-project-structure)
+4. [Accounts, roles & access](#4-accounts-roles--access)
+5. [Modules](#5-modules)
+6. [System configuration & infrastructure](#6-system-configuration--infrastructure)
+7. [Security summary](#7-security-summary)
+8. [Developer notes](#8-developer-notes)
+9. [Database & diagrams](#9-database--diagrams)
+10. [Project status](#10-project-status)
+
+---
+
+## 1. Features at a glance
+
+| | Member | Officer | Admin |
+|---|:---:|:---:|:---:|
+| Self-register via `signup.php` (starts `pending`) | ✅ | ❌ | ❌ |
+| Log in, reset a forgotten password by email | ✅ | ✅ | ✅ |
+| Edit own name / contact / email / password | ✅ | ✅ | ✅ |
+| View own farm lots, ISF bills, schedule, reservations, map | ✅ | — | — |
+| Request machinery reservations | ✅ | — | — |
+| Approve / deactivate **member** accounts | ❌ | ✅ | ✅ |
+| Manage farm lots, sectors & boundaries, schedules, machinery, reservations | ❌ | ✅ | ❌ |
+| Manage billing periods, generate bills, record payments | ❌ | ✅ | ❌ |
+| Add / edit / delete **any** account (admin, officer, member), change roles & status | ❌ | ❌ | ✅ |
+| View every user's login history and look up an IP address | ❌ | ❌ | ✅ |
+| Check the PHP / MySQL system clock | ❌ | ❌ | ✅ |
+| Dashboard | `member/dashboard.php` | `officer/dashboard.php` | `admin/dashboard.php` |
+
+**Sidebar navigation per role**
+
+- **Admin:** Dashboard · My Profile · User Management · User Login Logs · System Clock
+- **Officer:** Dashboard · My Profile · Member Management · Sector Management · Sector Boundaries · Billing & ISF · Rotation Scheduling · Machinery Inventory · Reservation Requests (with a pending-count badge) · Member Map
+- **Member:** Dashboard · My Profile & Farm Lot · My Billing / ISF · Rotation Status · Reserve Machinery · Reservation History · My Farm Map
+
+Cross-cutting: responsive UI with a slide-in mobile drawer, search and
+pagination on every list page, custom error pages, a configurable timezone
+shared by PHP and MySQL, and optional outgoing email (forgot password,
+account-activation notice).
+
+---
+
+## 2. Getting started
+
+### Requirements
+
+PHP **7.4 or newer** and MySQL/MariaDB. The code deliberately avoids
+PHP 8-only syntax (`str_contains()`, `match`, union types, …); where an
+8.x function would be natural, a small 7.4-compatible helper is used
+instead (e.g. `str_has()` in `includes/pagination.php`).
+
+### Fresh install (XAMPP)
+
+1. Copy the project folder into `htdocs/` (the examples below assume it is
+   named `bambosa`).
+2. Start **Apache** and **MySQL** in XAMPP.
+3. In phpMyAdmin, import `sql/bambosa_db.sql`. It creates the `bambosa_db`
+   database and **every** table, plus the default officer and admin
+   accounts — nothing in `sql/migrations/` needs to be run on a fresh install.
+4. Check `config/database.php` (XAMPP's default `root` with an empty
+   password is already set).
+5. *Recommended:* set `APP_TIMEZONE` in `config/timezone.php`
+   (e.g. `'Asia/Manila'`) — see [Timezone](#timezone).
+6. Open `http://localhost/bambosa/` and log in with a default account
+   (below). **Change both default passwords straight away.**
+
+### Quick run without Apache (Windows)
+
+Double-click `serve.bat`. It checks that `php` is on your `PATH`, then
+starts PHP's built-in server at `http://localhost:8000/` (using
+`error/router.php`, so missing pages and protected folders still get the
+branded 404/403 pages). MySQL/MariaDB must still be running separately and
+`config/database.php` configured.
+
+### Default accounts
+
+| Role | Email | Password |
+|---|---|---|
+| Admin | `admin@bambosa.local` | `12345678` |
+| Officer | `officer@bambosa.local` | `12345678` |
+
+Change a password from **My Profile** after logging in, or — as an admin —
+from **User Management → Edit** (leave the field blank to keep an
+existing password). To generate a hash by hand:
+
+```bash
+php -r "echo password_hash('YourNewPassword123', PASSWORD_DEFAULT);"
+```
+
+### Upgrading an existing install
+
+Pull the new code, then in phpMyAdmin import any migration you haven't run
+yet from `sql/migrations/`, **in numeric order**. They are safe to re-run
+(`CREATE TABLE IF NOT EXISTS`, plus existence checks before altering
+tables). None of them touches existing rows.
+
+| Migration | Adds |
+|---|---|
+| `001_isf_billing.sql` | `billing_periods`, `isf_bills`, `isf_payments` |
+| `002_sector_polygons.sql` | `sectors.boundary_geojson`, `sector_auto_assignments` |
+| `003_farm_lot_polygons.sql` | `farm_lots.boundary_geojson` |
+| `004_schedule_groups.sql` | `rotation_schedules.group_id` |
+| `005_password_resets.sql` | `password_resets` |
+| `006_machinery_groups.sql` | `machinery_groups`, `machinery.group_id` / `damage_level`, `machinery_reservations.group_id` / `rejection_remark` (and makes its `machinery_id` nullable) |
+| `007_admin_role.sql` | the `admin` value on `users.role` and the default admin account |
+
+Future schema changes follow the same pattern: a new
+`sql/migrations/NNN_description.sql` for existing installs, with the same
+statements folded into `sql/bambosa_db.sql` so a fresh install always gets
+the complete, current schema in one import.
+
+### Configuration files
+
+All live in `config/`, which is blocked from direct web access by
+`config/.htaccess` (`Require all denied`).
+
+| File | Purpose | Default |
+|---|---|---|
+| `database.php` | PDO connection (host, database, credentials) | XAMPP defaults |
+| `timezone.php` | `APP_TIMEZONE` — one timezone for PHP and MySQL | empty = not configured, nothing is changed |
+| `smtp.php` | SMTP settings for outgoing email | `SMTP_ENABLED = false` |
+
+---
+
+## 3. Project structure
 
 ```
 bambosa/
-├── index.php               # Public landing page
-├── login.php                # Login form + auth logic
-├── signup.php                # Signup form (registers as "member")
-├── logout.php                # Destroys session, redirects to login
-├── forgot_password.php        # Request a password reset email
-├── reset_password.php          # Lands from the emailed reset link; sets new password
-├── calendar_data.php          # JSON endpoint the dashboard calendar fetches when navigating months
-│                                # (lives here, not in includes/, since includes/.htaccess blocks direct HTTP access)
-├── config/
-│   ├── database.php          # PDO connection (edit credentials here)
-│   ├── smtp.php                # SMTP credentials + settings for outgoing email (edit here)
-│   ├── timezone.php            # APP_TIMEZONE — one timezone for PHP and MySQL (empty = not configured, nothing changes)
-│   └── .htaccess              # Blocks direct browser access
-├── vendor/
-│   ├── phpmailer/phpmailer/src/  # PHPMailer 6.12.0 core files (Exception/PHPMailer/SMTP.php) — vendored directly, see VERSION.txt inside
-│   └── .htaccess              # Blocks direct browser access
-├── includes/
-│   ├── base_path_utils.php     # BAMBOSA_BASE_PATH detection + base_url() helper
-│   ├── session.php              # session_start() bootstrap (uses base_path_utils.php for cookie path)
-│   ├── auth.php                 # require_login(), require_role(), CSRF helpers (uses base_path_utils.php for redirects)
-│   ├── members.php              # Member, farm-lot, sector & map data access
-│   ├── admin_users.php           # Admin-only account management (list/add/edit/delete users of any role, safety guards)
-│   ├── timezone.php              # Applies config/timezone.php to PHP + MySQL; clock status for the admin System Clock page
-│   ├── ip_lookup.php              # ip-api.com lookup for the admin IP details page (validation, 24h cache)
-│   ├── login_logs.php             # Read-only queries on login_logs (search + pagination) for the admin log page
-│   ├── sector_boundaries.php     # Polygon storage, point-in-polygon test, auto-assignment logic
-│   ├── farm_lot_boundaries.php    # Farm lot polygon storage + centroid computation
-│   ├── machinery.php             # Machinery + reservation data access
-│   ├── schedules.php              # Rotation schedule data access
-│   ├── billing.php                 # ISF billing periods, bills, payments data access
-│   ├── pagination.php               # Shared search/pagination helpers for officer list pages
-│   ├── calendar_events.php           # Builds the dashboard calendar's merged schedule + reservation event list
-│   ├── mailer.php                     # PHPMailer wrapper — send_email(), render_email_layout()
-│   ├── password_reset.php              # Forgot-password token generation, verification, consumption
-│   ├── partials/
-│   │   ├── admin_sidebar.php       # Shared admin nav (topbar + drawer + overlay)
-│   │   ├── officer_sidebar.php     # Shared officer nav (topbar + drawer + overlay)
-│   │   ├── member_sidebar.php       # Shared member nav (topbar + drawer + overlay)
-│   │   └── .htaccess
-│   └── .htaccess
-├── .htaccess                  # ErrorDocument rules pointing Apache at error/*.html
-├── error/
-│   ├── 400.html, 401.html, 403.html, 404.html, 500.html, 503.html   # Branded, self-contained error pages
-│   └── router.php              # Router for serve.bat's built-in server (404/400/403 behaviour like Apache)
-├── admin/
-│   ├── dashboard.php           # Protected — role must be 'admin'; account counts + quick actions
-│   ├── profile.php              # Edit own name/contact/email/password
-│   ├── users.php                 # List/filter/search ALL accounts (admins, officers, members); edit/delete links
-│   ├── user_edit.php              # Add a new account / edit any other account (role, status, email, password)
-│   ├── user_delete.php             # POST handler for deleting an account
-│   ├── login_logs.php               # User Login Logs — every user's logins (search + pagination)
-│   ├── ip.php                        # IP details: map (left) + location/ISP/network info (right) for ?address=…
-│   └── system_clock.php              # System Clock — PHP vs MySQL timezone/time, sync check
-├── officer/
-│   ├── dashboard.php           # Protected — role must be 'officer'
-│   ├── profile.php              # Edit own name/contact/password
-│   ├── members.php              # List/filter members, approve/deactivate
-│   ├── member_view.php           # View one member + manage their farm lots (CRUD, with auto-assign option)
-│   ├── update_status.php          # POST handler for approve/deactivate/reactivate
-│   ├── sectors.php                 # Sector CRUD (name, description, usage counts)
-│   ├── sector_boundaries.php        # Draw/edit sector boundary polygons on a map
-│   ├── sector_boundary_save.php      # AJAX: save a polygon, optionally trigger auto-assignment
-│   ├── sector_boundary_preview.php    # AJAX: live "N farm lots would match" preview while drawing
-│   ├── billing_periods.php             # Open/edit/close/delete billing periods
-│   ├── billing_period_view.php          # Generate bills, view/filter bills, record payments
-│   ├── machinery.php                     # Manage machinery list (add/edit/delete/availability/group/damage)
-│   ├── machinery_groups.php               # Manage machinery groups (pools of interchangeable equipment)
-│   ├── reservations.php                   # Approve/reject (with remark; remark editable afterwards)/cancel member reservation requests
-│   ├── reservation_assign.php              # Pick a specific unit to assign + approve a group-targeted request
-│   ├── schedules.php                       # Create/edit/delete water rotation schedule entries
-│   └── map.php                              # All members' farm lots + sector boundaries on a Leaflet map
-├── member/
-│   ├── dashboard.php           # Protected — role must be 'member'
-│   ├── profile.php              # Edit own name/contact/password; view (read-only) farm lots
-│   ├── billing.php               # View own ISF bills + payment history across all periods
-│   ├── machinery.php              # Request a reservation (equipment pool or standalone machine)
-│   ├── machinery_history.php       # Own reservation history + equipment condition reference (search + pagination)
-│   ├── schedule.php                # View upcoming water rotation for own sector + all sectors
-│   └── map.php                      # View own farm lot(s) plotted on a Leaflet map
+├── index.php                  # Public landing page
+├── login.php                  # Login form + auth logic (records login_logs)
+├── signup.php                 # Member signup (role "member", status "pending")
+├── logout.php                 # Ends the session
+├── forgot_password.php        # Request a password-reset email
+├── reset_password.php         # Landing page for the emailed reset link
+├── calendar_data.php          # JSON endpoint for the dashboard calendar's month navigation
+│                              #   (at the root because includes/.htaccess blocks direct HTTP access)
+├── .htaccess                  # ErrorDocument rules → error/*.html
+├── serve.bat                  # Windows helper: php -S localhost:8000 with error/router.php
+├── README.md
+│
+├── admin/                     # role = admin
+│   ├── index.php              # Directory entry point → dashboard.php
+│   ├── dashboard.php          # Account counts + quick actions
+│   ├── profile.php            # Own name / contact / email / password
+│   ├── users.php              # List, filter and search ALL accounts; edit / delete links
+│   ├── user_edit.php          # Add an account / edit any other account
+│   ├── user_delete.php        # POST handler: delete an account
+│   ├── login_logs.php         # User Login Logs (search + pagination)
+│   ├── ip.php                 # IP details: map + location / ISP info for ?address=…
+│   └── system_clock.php       # PHP vs MySQL timezone and time
+│
+├── officer/                   # role = officer
+│   ├── index.php              # Directory entry point → dashboard.php
+│   ├── dashboard.php          # Stat cards + calendar
+│   ├── profile.php            # Own name / contact / email / password
+│   ├── members.php            # List / filter members; approve, deactivate
+│   ├── member_view.php        # One member + their farm lots (CRUD, boundary drawing)
+│   ├── update_status.php      # POST handler: approve / deactivate / reactivate a member
+│   ├── sectors.php            # Sector CRUD
+│   ├── sector_boundaries.php  # Draw / edit sector boundaries on a map
+│   ├── sector_boundary_save.php     # AJAX: save a boundary (+ optional auto-assignment)
+│   ├── sector_boundary_preview.php  # AJAX: live "N farm lots would match" preview
+│   ├── billing_periods.php    # Open / edit / close / delete billing periods
+│   ├── billing_period_view.php # Generate bills, filter bills, record payments
+│   ├── machinery.php          # Machinery inventory (availability, group, condition)
+│   ├── machinery_groups.php   # Pools of interchangeable equipment
+│   ├── reservations.php       # Approve / reject / cancel reservation requests
+│   ├── reservation_assign.php # Pick a unit to assign + approve a pool request
+│   ├── schedules.php          # Water-rotation schedule CRUD
+│   └── map.php                # Member Map: all lots + sector boundaries
+│
+├── member/                    # role = member
+│   ├── index.php              # Directory entry point → dashboard.php
+│   ├── dashboard.php          # Stat cards + calendar
+│   ├── profile.php            # Own details + password; read-only farm lots
+│   ├── billing.php            # Own ISF bills and payment history
+│   ├── machinery.php          # Request a reservation
+│   ├── machinery_history.php  # Own reservations + equipment condition
+│   ├── schedule.php           # Upcoming water rotation (own sector + all)
+│   └── map.php                # Own farm lots on a map
+│
+├── includes/                  # Library code (blocked from direct HTTP access)
+│   ├── base_path_utils.php    # BAMBOSA_BASE_PATH detection + base_url()
+│   ├── session.php            # Session bootstrap; applies the PHP timezone
+│   ├── auth.php               # Login/role checks, CSRF helpers, session ↔ DB sync
+│   ├── pagination.php        # Shared search + pagination helpers
+│   ├── members.php            # Users, farm lots, sectors, map queries
+│   ├── admin_users.php        # Account management for admins + safety guards
+│   ├── login_logs.php         # Read-only login_logs queries
+│   ├── ip_lookup.php          # ip-api.com lookup (validation, 24 h cache)
+│   ├── timezone.php           # Applies config/timezone.php to PHP + MySQL
+│   ├── sector_boundaries.php  # Boundary storage, point-in-polygon, auto-assignment
+│   ├── farm_lot_boundaries.php # Lot polygon storage + centroid
+│   ├── machinery.php          # Machinery, groups, reservations
+│   ├── schedules.php          # Rotation schedules
+│   ├── billing.php            # Billing periods, bills, payments
+│   ├── calendar_events.php    # Merged schedule + reservation events for the calendar
+│   ├── mailer.php             # PHPMailer wrapper: send_email(), render_email_layout()
+│   ├── password_reset.php     # Reset-token generation / verification / consumption
+│   └── partials/              # admin_, officer_ and member_sidebar.php (nav + mobile drawer)
+│
+├── config/                    # database.php · timezone.php · smtp.php (+ .htaccess)
+├── vendor/phpmailer/phpmailer/src/  # PHPMailer 6.12.0 core files, vendored (+ .htaccess)
+├── error/                     # 400 · 401 · 403 · 404 · 500 · 503 .html + router.php
 ├── assets/
-│   ├── css/style.css           # All styling, including responsive breakpoints + map styles
-│   ├── img/
-│   │   ├── favicon.png            # Site favicon (rice-stalk logo), linked on every page
-│   │   └── favicon.ico             # Multi-size (16/32/48px) fallback for older browsers
-│   └── js/
-│       ├── dashboard.js         # Mobile sidebar drawer toggle (vanilla JS, no deps)
-│       ├── dashboard-calendar.js # Dashboard calendar widget — month grid, day details, AJAX month nav (vanilla JS)
-│       ├── sector-boundaries.js  # Leaflet.draw polygon editor + live preview + save (vanilla JS)
-│       └── farm-lot-boundary.js   # Leaflet.draw editor for a single farm lot's boundary (vanilla JS)
+│   ├── css/style.css          # All styling, responsive breakpoints, map styles
+│   ├── img/                   # favicon.png, favicon.ico
+│   └── js/                    # dashboard.js · dashboard-calendar.js ·
+│                              #   sector-boundaries.js · farm-lot-boundary.js
 ├── sql/
-│   ├── bambosa_db.sql         # Full schema (fresh install) + seed officer & admin accounts
-│   ├── migrations/
-│   │   ├── 001_isf_billing.sql      # Adds billing_periods/isf_bills/isf_payments to an EXISTING db
-│   │   ├── 002_sector_polygons.sql   # Adds sectors.boundary_geojson + sector_auto_assignments to an EXISTING db
-│   │   ├── 003_farm_lot_polygons.sql  # Adds farm_lots.boundary_geojson to an EXISTING db
-│   │   ├── 004_schedule_groups.sql     # Adds rotation_schedules.group_id to an EXISTING db
-│   │   ├── 005_password_resets.sql      # Adds the password_resets table to an EXISTING db
-│   │   ├── 006_machinery_groups.sql      # Adds machinery_groups, damage_level, group-targeted reservations to an EXISTING db
-│   │   ├── 007_admin_role.sql             # Adds the 'admin' role + seeds a default admin account to an EXISTING db
-│   │   └── .htaccess
-│   └── .htaccess
-├── docs/
-│   └── diagrams/
-│       ├── README.md            # How to view/edit these + when to update them
-│       ├── erd.mermaid            # Entity-Relationship Diagram (Mermaid source)
-│       ├── dfd_level0.mermaid      # Level 0 / Context Data Flow Diagram
-│       └── dfd_level1.mermaid      # Level 1 Data Flow Diagram (8 major processes)
-└── serve.bat                  # Windows convenience script — runs `php -S localhost:8000`
-                                # (with error/router.php) from the project root; checks PHP is on PATH first
+│   ├── bambosa_db.sql         # Full schema + seed accounts (fresh install)
+│   └── migrations/            # 001 … 007 for existing installs (+ .htaccess)
+└── docs/diagrams/             # erd.mermaid · dfd_level0.mermaid · dfd_level1.mermaid · README.md
 ```
 
-## Setup (XAMPP)
+`includes/`, `config/`, `vendor/` and `sql/` each carry a
+`.htaccess` with `Require all denied`.
 
-**Requirements:** PHP 7.4 or newer, MySQL/MariaDB. The codebase
-intentionally avoids PHP 8-only syntax (`str_contains()`, `match`,
-constructor property promotion, union types, etc.) so it also runs on
-older PHP 7.4 stacks some school/hosting environments are still on. If a
-PHP 8+-only function would otherwise be the natural choice, a small
-`if (!function_exists(...))`-guarded 7.4-compatible helper is added next
-to where it's needed instead (e.g. `str_has()` in `includes/pagination.php`,
-a `strpos()`-based stand-in for `str_contains()`).
+---
 
-**Optional — outgoing email (forgot password, activation notices):**
-PHPMailer 6.12.0's core files are already vendored in under
-`vendor/phpmailer/phpmailer/src/`, so the only setup step is filling in
-real credentials in `config/smtp.php` and setting `SMTP_ENABLED = true`.
-Nothing else in the app depends on this — every other feature works
-fully without it. See "Outgoing Email" further down for the complete
-setup steps and what happens if this is skipped.
+## 4. Accounts, roles & access
 
-**Fresh install (no existing database):**
-1. Copy the `bambosa/` folder into `htdocs/`.
-2. Start Apache + MySQL in XAMPP.
-3. Open phpMyAdmin, import `sql/bambosa_db.sql`. This single file creates
-   every table — including ISF billing and sector boundaries — so you don't
-   need to run anything from `sql/migrations/` separately.
-4. Edit `config/database.php` with your DB username/password (XAMPP
-   default is usually `root` with empty password — already set).
-5. Recommended: set `APP_TIMEZONE` in `config/timezone.php` (e.g.
-   `'Asia/Manila'`) so PHP and MySQL use the same clock — see
-   "Timezone configuration" below. Until you do, neither is changed.
-6. Visit `http://localhost/bambosa/`.
+### Authentication & sessions
 
-**Quick local run without Apache (Windows):** double-click `serve.bat` in
-the project root. It checks that `php` is available on your `PATH` first
-(some bundled Apache+MySQL/MariaDB+PHP stacks, unlike XAMPP, don't add PHP
-to `PATH` automatically) and tells you what to do if it isn't found,
-otherwise it starts PHP's built-in server (`php -S localhost:8000`) so you
-can visit `http://localhost:8000/`. You still need MySQL/MariaDB running
-separately and `config/database.php` configured, since the built-in server
-only replaces Apache, not the database.
+- Passwords are stored with `password_hash()` and checked with
+  `password_verify()`. Sessions are hardened (`httponly`, `samesite=Lax`,
+  cookie path scoped to the install folder) in `includes/session.php`.
+- `includes/auth.php` provides `require_login()`,
+  `require_role('admin'|'officer'|'member')` (a wrong-role visit is sent to
+  that user's own dashboard), and `csrf_token()` / `csrf_verify()`.
+- **Changes take effect immediately.** `sync_session_with_db()` (run once
+  per request from `is_logged_in()`) re-checks the logged-in user against
+  the database: a deleted or non-`active` account is logged out on its
+  next request, and a changed role updates straight away.
+- New signups are saved as role `member`, status `pending`, and cannot log
+  in until an officer or admin sets them to `active`.
+  **Officer and admin accounts cannot self-register** — an admin creates
+  them in User Management.
+- Forgotten passwords are self-service through `forgot_password.php` /
+  `reset_password.php` (see [Outgoing email](#outgoing-email)).
+- Every successful login is written to `login_logs` (user, time, IP).
+- Direct folder URLs such as `/bambosa/member/` work: each folder's
+  `index.php` simply loads its `dashboard.php`, which applies the normal
+  login and role checks.
 
-**Existing install (database created before a given feature was added):**
-1. Pull the updated code into your `bambosa/` folder as normal.
-2. In phpMyAdmin, open your existing `bambosa_db` database and import
-   whichever migration file(s) you haven't run yet, **in numeric order**:
-   - `sql/migrations/001_isf_billing.sql` — adds `billing_periods`,
-     `isf_bills`, `isf_payments`.
-   - `sql/migrations/002_sector_polygons.sql` — adds `boundary_geojson` to
-     `sectors` and creates `sector_auto_assignments`.
-   - `sql/migrations/003_farm_lot_polygons.sql` — adds `boundary_geojson`
-     to `farm_lots`.
-   - `sql/migrations/004_schedule_groups.sql` — adds `group_id` to
-     `rotation_schedules`.
-   - `sql/migrations/005_password_resets.sql` — creates the
-     `password_resets` table.
-   - `sql/migrations/006_machinery_groups.sql` — creates
-     `machinery_groups`, adds `group_id`/`damage_level` to `machinery`,
-     and adds `group_id`/`rejection_remark` to `machinery_reservations`
-     (also makes that table's `machinery_id` nullable).
-3. None of this touches data you already have in `users`, `farm_lots`,
-   `sectors`, etc. All migrations are safe to re-run if you're ever unsure
-   whether one was already applied (`CREATE TABLE IF NOT EXISTS` throughout,
-   plus a column-existence / idempotency check before altering tables or
-   adding indexes).
-   - `sql/migrations/007_admin_role.sql` — adds `'admin'` to the
-     `users.role` column and seeds a default admin account
-     (`admin@bambosa.local`, see "Admin role" below).
+### Admin
 
-Future schema changes will follow this same pattern: a new
-`sql/migrations/NNN_description.sql` file for existing installs, with the
-same statements folded into `sql/bambosa_db.sql` so a fresh install always
-gets the complete, current schema in one import.
+Admins hold the "master key" for **accounts** (day-to-day association
+records stay with officers).
 
-## Works from any subdirectory (or the domain root)
+- **User Management** (`admin/users.php`) — every account in one list with
+  role tabs, status tabs, search and pagination.
+- **Add / edit** (`admin/user_edit.php`) — name, email, contact number,
+  role, status, and a password (required for a new account; leave blank
+  when editing to keep it). Email must be valid and unique; passwords need
+  at least 8 characters.
+- **Delete** (`admin/user_delete.php`, POST + CSRF) — permanent. Database
+  cascades also remove a member's farm lots, reservations, ISF bills and
+  payments, login logs and reset tokens; records an officer merely
+  created (schedules, billing periods, recorded payments, auto-assignment
+  log entries) are kept with the author cleared. The confirmation dialog
+  warns about the member cascade.
+- **Safety rules** (`user_change_guard_error()`): an admin cannot delete,
+  demote or deactivate **their own** account from User Management (they
+  edit themselves via My Profile), and the **last active admin** can never
+  be deleted, demoted or deactivated — so the system cannot be locked out.
+- **User Login Logs** (`admin/login_logs.php`) — every successful login by
+  any role, newest first: date/time, name, email, role, IP. Search matches
+  name, email, role, IP or the timestamp text (e.g. `2026-10`); 15 rows per
+  page. Deleting an account also removes its log rows.
+- **IP address details** (`admin/ip.php?address=…`) — each IP in the logs
+  is a link: a map on the left (above the details on phones) and country,
+  region, city, ZIP, coordinates, timezone and local time there, currency,
+  ISP, organization, AS number/name, reverse DNS, and Yes/No flags for
+  mobile network, proxy/VPN and hosting. Data comes from the free
+  [ip-api.com](https://ip-api.com/docs) API, queried **server-side** by
+  `includes/ip_lookup.php`:
+  - Local/private addresses (`127.0.0.1`, `::1`, `192.168.x.x`, …) have no
+    public location and are not sent to the API — on a local install most
+    logins will be one of these.
+  - The free endpoint is **HTTP only** (only the IP travels, unencrypted),
+    limited to about 45 requests/minute and meant for non-commercial use.
+    Results are cached for 24 hours in the system temp folder. For
+    HTTPS/commercial use, switch to a paid key (`IP_API_BASE`).
+  - Geolocation is approximate (city/ISP level), so the map shows a point
+    plus a ~5 km circle. The address is validated with `filter_var()` and
+    all output is HTML-escaped.
+- **System Clock** (`admin/system_clock.php`) — PHP's and MySQL's timezone
+  and current time side by side, with a warning if they disagree (see
+  [Timezone](#timezone)).
 
-The app does **not** hardcode a leading `/` on any link, form action,
-asset URL, or redirect. Instead, every one of those is built with a
-`base_url($path)` helper, which resolves against a `BAMBOSA_BASE_PATH`
-constant computed once per request from `$_SERVER['SCRIPT_NAME']`. Both
-of these live together in `includes/base_path_utils.php`, kept separate
-from `session.php` (session bootstrapping) and `auth.php` (login/role
-logic) since base-path resolution is really its own concern — it's just
-that both of those files happen to depend on it (`session.php` needs it
-to scope the session cookie path; `auth.php` needs it for
-`require_login()`/`redirect_to_dashboard()`'s redirect URLs).
+### Officer
 
-This means the exact same codebase works unmodified whether it's:
-- served from the domain root (`http://localhost/`)
-- installed in a subdirectory (`http://localhost/bambosa/`)
-- installed several folders deep (`http://localhost/some/nested/path/bambosa/`)
+Officers run the association's records: members and farm lots, sectors and
+boundaries, rotation schedules, machinery and reservations, and ISF
+billing — see [Modules](#5-modules). They can approve and
+deactivate **member** accounts from Member Management;
+`officer/update_status.php` refuses to touch admin or officer accounts.
+Role, status and land data can only be changed by an officer or admin, never
+by the member (self-editing land area or status would be a billing and
+security risk).
 
-No config value needs to be set for this — it's detected automatically.
-The session cookie's `path` is also scoped to the detected base path
-(instead of always `/`), which is the technically correct behavior for a
-subdirectory install.
+### Member
 
-**When adding new pages**, always use `base_url()` instead of a hardcoded
-leading-slash path:
+Members see their own data only: profile and read-only farm lots, ISF
+bills and payment history, the rotation schedule, a farm map, machinery
+reservations and their history. Members cannot record payments or edit
+land area/sector.
 
-```php
-// Good — works from any install location
-<a href="<?= base_url('officer/reports.php') ?>">Reports</a>
-<link rel="stylesheet" href="<?= base_url('assets/css/style.css') ?>">
-header('Location: ' . base_url('officer/dashboard.php'));
+### Account self-service (all roles)
 
-// Bad — breaks if the app isn't served from the domain root
-<a href="/officer/reports.php">Reports</a>
-header('Location: /officer/dashboard.php');
-```
+Every role has a profile page (`admin/`, `officer/` and `member/profile.php`):
 
-Every new page should `require_once __DIR__ . '/includes/session.php';`
-then `require_once __DIR__ . '/includes/auth.php';` (adjusting the path
-for pages under `officer/`/`member/`) before calling `base_url()`, exactly
-like every existing page already does. You do **not** need to separately
-`require_once` `base_path_utils.php` yourself — both `session.php` and
-`auth.php` already pull it in, so it's available automatically as soon as
-either of those is loaded.
+- **Name and contact number** can be edited freely.
+- **Email** is editable. It is the login name and the password-reset
+  address, so changing it requires the **current password**; it must be a
+  valid address not used by another account. No confirmation link is sent
+  to the new address.
+- **Password changes** require the current password, at least 8 new
+  characters, entered twice. This stops an unattended session from being
+  used to lock the real owner out. All roles share `change_user_password()`.
+- The account form and the password form post to the same endpoint and are
+  told apart by a hidden `form=password` field, so each shows its own
+  success/error state.
 
-This app currently only has pages one folder deep (`admin/`, `officer/`, `member/`)
-or at the root. The base-path detection in `includes/base_path_utils.php`
-strips exactly those three folder names — so adding another role folder
-means adding it to the `(admin|officer|member)` regex there, or every link,
-asset URL and redirect on its pages will break. Going two folders deep
-would need an extra segment stripped as well.
+---
 
-## Search & pagination on management (CRUD) pages
+## 5. Modules
 
-Every officer list page — Members, Sectors, Machinery, Reservations,
-Schedules, Billing Periods, and a Billing Period's Bills — now has a
-search box and pagination instead of dumping every row into one long
-table:
+### Member & farm management
 
-- **Search** is a simple `?q=` GET parameter, matched server-side with
-  a case-insensitive `LIKE '%term%'` against the relevant text columns
-  for that list (e.g. member name/email/contact; machinery name/description;
-  reservation machinery/requester/purpose). It combines with any existing
-  status filter tab (e.g. searching while on the "Pending" members tab
-  searches only pending members).
-- **Pagination** shows 15 rows per page (`PAGINATION_PER_PAGE` in
-  `includes/pagination.php`), with a "Showing X–Y of Z" summary and
-  prev/next/page-number links. It's hidden automatically when everything
-  fits on one page.
-- Both are implemented in `includes/pagination.php`:
-  - `get_search_term()` / `get_current_page()` — read and sanitize the
-    `?q=` / `?page=` query params.
-  - `build_pagination()` — turns a total row count + current page into
-    the limit/offset/page-count metadata the view needs.
-  - `render_search_box()` / `render_pagination_controls()` — render the
-    actual search form and page-link markup, reused identically across
-    every list page.
-- Every data-access "get all X" function (`get_all_members()`,
-  `get_sectors_with_usage()`, `get_all_machinery()`,
-  `get_all_reservations()`, `get_all_schedules()`, `get_billing_periods()`,
-  `get_bills_for_period()`) now takes optional `$search`, `$limit`, and
-  `$offset` parameters, each paired with a `count_*()` function
-  (`count_members()`, `count_sectors()`, etc.) that runs the same
-  filters without `LIMIT`/`OFFSET` to get the total for the pagination
-  summary. Passing `null` for `$limit`/`$offset` returns every matching
-  row unpaginated, so anywhere else in the codebase that still calls
-  these functions without the new arguments keeps working unchanged
-  (e.g. `member/schedule.php` listing a member's own upcoming schedule).
-- **All of this goes through prepared statements** — search terms are
-  bound as `LIKE` parameters (never string-concatenated into the SQL),
-  and `LIMIT`/`OFFSET` values are bound explicitly as
-  `PDO::PARAM_INT`. The only dynamic SQL fragments (e.g. appending
-  `AND status = :status` only when a filter is active) are hardcoded
-  strings chosen by server-side logic, never built from raw user input,
-  so there's no SQL injection surface here or elsewhere in the app.
-- Search boxes are plain GET forms. Since a GET form's `action` URL
-  loses its own query string on submit (the browser only sends the
-  form's fields), anything that needs to survive a search — a status
-  filter, a billing period's `?id=`, etc. — is passed as a hidden
-  input via `render_search_box()`'s `$preserveParams` argument rather
-  than baked into the URL.
+- `farm_lots` holds one or more parcels per member: name, sector, land
+  area (ha), a drawn boundary (`boundary_geojson`) and notes.
+- **Officers** filter members (all / pending / active / inactive), approve
+  signups, deactivate or reactivate accounts, and add/edit/delete farm lots
+  for any member (`officer/member_view.php`).
+- **Members** update their own name and contact number and see their lots
+  and total area read-only (`member/profile.php`). Land area and sector are
+  officer-managed because they drive billing.
+- All data access goes through `includes/members.php` using prepared
+  statements.
 
-## Sidebar icons
+### Sector management
 
-`includes/partials/officer_sidebar.php` and `includes/partials/member_sidebar.php`
-render each nav link with an inline SVG icon (Material Design Icons paths,
-`fill="white"`, 24×24 viewBox) instead of emoji/text-only links, so the
-sidebar renders consistently across platforms and browsers. To add a new
-nav item, follow the existing pattern: an `<svg>` with an `<path>` d`
-attribute, followed by a `<span>` with the label text, both inside the
-`<a>` tag.
+- `officer/sectors.php` is full CRUD with case-insensitive duplicate-name
+  checking. Each row shows how many farm lots and rotation schedules use
+  that sector (`get_sectors_with_usage()`).
+- Deleting a sector is allowed; the confirmation names how many records are
+  affected. Farm lots are **unassigned** (`ON DELETE SET NULL`) while that
+  sector's schedules are **deleted** (`ON DELETE CASCADE`).
 
-## Favicon
+### Farm lot polygons
 
-`assets/img/favicon.png` (the rice-stalk logo) and `assets/img/favicon.ico`
-(a multi-size 16/32/48px fallback generated from the same image, for
-older browsers and OS-level favicon caches that don't support PNG
-favicons) are linked in the `<head>` of every page — every file in
-`member/`, `officer/`, and the root-level auth pages
-(`index.php`, `login.php`, `signup.php`, `forgot_password.php`,
-`reset_password.php`). The one exception is `includes/mailer.php`'s
-`<head>`, which belongs to an HTML email template, not a browser page —
-email clients don't render favicons, so there's nothing to link there.
+A farm lot's location is defined **only by its drawn boundary**.
 
-Both links use `base_url()` like every other asset reference in the app,
-so the favicon resolves correctly regardless of which subdirectory (or
-domain root) BAMBOSA is installed under — see "Works from any
-subdirectory" above.
+- `farm_lots.boundary_geojson` is a JSON array of `[lat, lng]` vertices
+  drawn with Leaflet.draw (same format as sector boundaries).
+- `latitude` / `longitude` are **derived, never edited**: saving a lot
+  computes them as the polygon's centroid (`polygon_centroid()` in
+  `includes/farm_lot_boundaries.php`) and stores them together with the
+  polygon. A lot with no polygon has `NULL` coordinates. Anything needing a
+  single point — chiefly sector auto-assignment — uses the centroid.
+- **One form, one save.** The drawn polygon is serialised into a hidden
+  `boundary_points` field by `assets/js/farm-lot-boundary.js` and saved
+  with the lot's other fields in one POST (`officer/member_view.php`), for
+  new lots and existing ones alike.
+- `normalize_and_center_boundary()` validates the points: none = "no
+  boundary" (valid); one or two = rejected; three or more = accepted.
+- While drawing, two checkboxes overlay other shapes as dimmed, dashed,
+  non-editable guides: **Show sector boundaries** (on by default) and
+  **Show other farm lots** (off by default). The lot being edited is never
+  shown twice.
+- Lot tables show a "Drawn" / "Not drawn" badge instead of raw coordinates.
 
-To replace the logo later: swap out `assets/img/favicon.png` with a new
-image (ideally square, at least 144×144 so it stays sharp on high-DPI
-displays) and regenerate `favicon.ico` from it — any PNG-to-ICO
-conversion tool works, since it's a small offline design asset, not
-something that needs regenerating at request-time.
+### Sector boundaries & auto-assignment
 
-## Direct directory access (`/admin/`, `/member/`, `/officer/`)
+Officers draw each sector's boundary on a map; farm lots whose centroid
+falls inside can then be assigned to that sector automatically
+(point-in-polygon, the same technique a GIS spatial join uses).
 
-`admin/index.php`, `member/index.php` and `officer/index.php` all exist so that a user
-who browses to the bare directory URL (e.g. `http://localhost/bambosa/member/`)
-is routed somewhere sensible instead of hitting a server-generated
-directory listing or a blank/404 response (depending on server config).
-Each just `require_once`s that folder's `dashboard.php`, which in turn
-enforces `require_login()` / `require_role()` as normal — so an
-unauthenticated visit still correctly redirects to `login.php`, and a
-wrong-role visit still redirects to that user's own dashboard.
+- `officer/sector_boundaries.php` — pick a sector, draw/reshape its polygon
+  with Leaflet.draw, and save. Other sectors' boundaries show dimmed for
+  context, and **Preview Matches** lists the lots that would fall inside
+  before anything is saved. Farm lots appear as their own boundary shapes,
+  filled with their sector's colour (a checkbox toggles them).
+- Boundaries are stored in `sectors.boundary_geojson` as the same simple
+  `[lat, lng]` vertex list. `point_in_polygon()` (ray casting) lives in
+  `includes/sector_boundaries.php`; the live preview calls the same PHP via
+  `officer/sector_boundary_preview.php`, so there is no second copy of the
+  maths in JavaScript. Save goes through `sector_boundary_save.php`.
+- **Auto-assignment rules**
+  - Saving a boundary can re-run assignment across every lot that has
+    coordinates (checkbox, on by default); only lots whose sector would
+    change are updated.
+  - The lot form can auto-assign a single lot from the boundary its
+    centroid falls in.
+  - If that would overwrite a sector an officer picked manually, an explicit
+    confirmation step shows current vs matched sector first.
+  - Overlapping boundaries are allowed: the first match wins and the
+    officer is told how many sectors overlapped.
+  - Every automatic change is logged in `sector_auto_assignments` (lot,
+    previous and new sector, who ran it, when) and listed in "Recent
+    Auto-Assignments" on the boundaries page.
+- The map opens on the sector being edited (if it has a boundary), otherwise
+  on the average position of all lots, falling back to a fixed Barangay
+  Bikal centre.
+- Lots with no sector are **not billed** (see [ISF billing](#isf-billing)).
 
-## Default accounts
+### Farm maps
 
-The seed SQL inserts an officer (`officer@bambosa.local`) and an admin
-(`admin@bambosa.local`), both with password **12345678** — change both
-after first login. Each row uses the same hash:
-You can also generate a real one:
+Maps use **Leaflet.js** with **OpenStreetMap** tiles from a CDN (no API
+key). QGIS, which the capstone paper mentions, cannot run in a browser;
+these maps are the web platform's own visualisation of the same data.
 
-```bash
-php -a
-echo password_hash('YourNewPassword123', PASSWORD_DEFAULT);
-```
+| Page | Shows |
+|---|---|
+| `officer/map.php` (Member Map) | Every lot **with a boundary** as its shape, filled with its sector's colour (legend), and sector boundaries as dashed outlines beneath. Clicking a lot opens a popup (name, owner, sector, hectares) with a **View member** link. A banner counts lots that have no boundary yet. |
+| `member/map.php` (My Farm Map) | Only the member's own lots, as boundary shapes; says how many lots still lack a boundary. |
+| `officer/sector_boundaries.php` | The sector editor, with lots drawn as boundary shapes. |
 
-Run that command snippet once then replace the output of
-`password_hash` value in the officer row in the database.
+On all three, **only the boundary is drawn** — the stored centroid is never
+plotted as a pin, and a lot without a boundary does not appear. Sector
+colours come from a fixed palette keyed to the sector names, so new
+sectors need no code changes. Leaflet also supports GeoJSON overlays, so
+an imported QGIS dataset could be layered in later.
 
-## How auth works
+### Rotation scheduling
 
-- Passwords are hashed with `password_hash()` / verified with `password_verify()`.
-- Sessions are hardened (`httponly`, `samesite=Lax`) via `includes/session.php`.
-- `includes/auth.php` provides:
-  - `require_login()` — kicks unauthenticated users to `/login.php`
-  - `require_role('admin'|'officer'|'member')` — kicks users with the wrong role to their own dashboard
-  - `sync_session_with_db()` (run from `is_logged_in()`, once per request) — re-checks the logged-in user against the database, so an admin deleting/deactivating an account or changing its role takes effect immediately rather than at the user's next login
-  - `csrf_token()` / `csrf_verify()` — CSRF protection on login/signup forms
-- New signups are inserted with `status = 'pending'` and role `member`.
-  An officer approves/activates them from `officer/members.php`
-  (`officer/update_status.php`) — see Epic 2 below — before they can log
-  in. Officer and admin accounts are **not** self-registrable — an admin
-  creates them from `admin/users.php`.
-- Forgotten passwords are self-service via `forgot_password.php` /
-  `reset_password.php` — see "Outgoing Email" further down for the full
-  writeup of how that flow works and what it depends on (SMTP being
-  configured).
+- `rotation_schedules` stores one water-release window per sector (start,
+  end, notes, posting officer). Officers create/edit/delete entries
+  (`officer/schedules.php`); members see the upcoming schedule for their
+  own sector(s) plus every sector's upcoming releases
+  (`member/schedule.php`).
+- **Overlap flagging:** `has_overlapping_schedule()` marks any entry that
+  overlaps another in the same sector with a "⚠ Overlap" badge, and shows a
+  warning after saving one. It is informational only — an intentional
+  correction or extension may legitimately overlap.
+- **Apply one schedule to several sectors:** a checkbox on the create/edit
+  form reveals the other sectors; each checked sector gets its own row with
+  identical times and notes. The sector chosen in the main dropdown is
+  disabled in the list (also enforced server-side with `array_unique()`).
+  - A nullable `rotation_schedules.group_id` tags rows created together;
+    `NULL` means standalone. Grouped rows show a "Shared" badge.
+  - Editing a grouped schedule pre-checks its sibling sectors and
+    propagates the change to every checked one. **Unchecking ungroups, never
+    deletes** — that sector's entry stays as a normal standalone schedule.
+  - Overlap checks cover every sector the schedule will end up in, excluding
+    each sector's own existing row.
+  - Functions: `create_schedule_group()`, `update_schedule_group()`,
+    `get_sibling_schedule_sector_ids()` in `includes/schedules.php`.
 
-## Dashboard calendar
+### Machinery reservations
 
-Both dashboards (`member/dashboard.php` and `officer/dashboard.php`) show
-a month calendar below the stat cards, so an officer or member can see
-what's coming up — rotation schedules and machinery reservations — at a
-glance instead of clicking into each management page separately.
+- **Tables:** `machinery_groups` (pools of interchangeable equipment, e.g.
+  "Hand Tractors"), `machinery` (optional `group_id`; `damage_level`
+  0–100), and `machinery_reservations` with a `pending →
+  approved / rejected` (or `cancelled`) flow.
+- **Members reserve a pool, not a specific unit.** `member/machinery.php`
+  lists **Equipment pools** ("Hand Tractors — 2 units available") and
+  **Standalone Machinery** (ungrouped machines, reserved directly as
+  always). A pool is hidden when none of its units is marked available.
+- **Officers assign the unit at approval time.** "Assign & Approve"
+  (`officer/reservations.php` → `officer/reservation_assign.php`) lists the
+  units that are available **and** free of overlapping pending/approved
+  reservations for those dates; the chosen unit becomes the reservation's
+  `machinery_id`.
+- **No stock = no approval.** If a pool is fully booked, the list shows a
+  "No stock available" badge and the only action is **Reject** with a
+  remark. `assign_and_approve_reservation()` re-checks availability at
+  submission, in case another request was approved first.
+- **Rejection remarks are required** and shown to the member on
+  `member/machinery_history.php`. Rejected rows have an **Edit Remark**
+  action (`update_rejection_remark()`): it only changes the remark, never
+  the status; the remark stays required and is limited to 255 characters.
+- **Condition tracking:** `damage_level` is set with a slider on the
+  officer's machinery form and shown as a colour bar (green < 34 %,
+  amber 34–66 %, red ≥ 67 % — `damage_severity_class()`) in the officer
+  list, the assignment page and an "Equipment Condition" table that
+  members can read before requesting.
+- **Overlap detection:** `has_overlapping_reservation()` (specific machine)
+  and `get_available_machinery_in_group()` (pools). At request time this is
+  a soft heads-up — the request still goes in as pending; at approval time
+  of a fully-booked pool it is a hard block.
+- **Navigation:** the officer sidebar has **Machinery Inventory** and a
+  separate **Reservation Requests** item with a red badge for pending
+  requests (hidden at zero, "99+" cap), computed inside
+  `officer_sidebar.php`. The member sidebar has **Reserve Machinery** and
+  **Reservation History**; the history page's two tables search and page
+  independently (`?q=`/`?page=` and `?cq=`/`?cpage=`).
 
-- **What shows up:** water release windows (`rotation_schedules`) and
-  pending/approved machinery reservations (`machinery_reservations`),
-  merged into one list per day. Rejected/cancelled reservations are left
-  out since they aren't actually happening.
-- **Scoped per role:** members only see schedules for their own farm
-  lot's sector(s) and their own reservations; officers see every sector's
-  schedule and every member's reservations, matching what each role can
-  already see elsewhere in the app.
-- **Layout:** a two-column card — a bigger month grid on the left, a
-  detail panel on the right showing whatever day is selected — deliberately
-  sized larger than the stat cards above it (`.dash-calendar` in
-  `assets/css/style.css`) since it's meant to be the dashboard's visual
-  centerpiece rather than another small tile. On narrow screens the detail
-  panel drops below the grid instead of squeezing side-by-side.
-- **Multi-day events**: a reservation or schedule window spanning several
-  days shows a dot on every day it touches, not just its start day
+### ISF billing
+
+**Calculation model.** A **rate in pesos per hectare, applied per farm lot,
+per billing period** — the simplified cash model the capstone paper
+specifies (equivalent to NIA's cavan-per-hectare rate once converted to
+cash).
+
+- **Billing periods** (`billing_periods`) are a season or cycle with a name,
+  a ₱/ha rate and a date range (`officer/billing_periods.php`). Rates are
+  stored per period because they change from season to season. Closing a
+  period blocks further bill generation; deleting one permanently removes
+  every bill and payment under it (the delete button warns first).
+- **Generating bills** (`officer/billing_period_view.php` → *Generate /
+  Refresh Bills*) creates one bill per farm lot **that is inside a sector**
+  (`farm_lots.sector_id IS NOT NULL`): `amount_due = land_area_ha ×
+  rate_per_ha`. Lots in no sector are **not billed**; the page says how many
+  are skipped.
+  - Area and rate are **snapshotted** on the bill, so later edits to a lot
+    don't rewrite history. Regenerating refreshes `amount_due` but never
+    touches `amount_paid`.
+  - Regenerating also cleans up after sector changes: a bill for a lot that
+    is no longer in a sector is removed if nothing has been paid on it, or
+    **kept and flagged for review** if payments exist. Closed periods are
+    never changed.
+- **Payments** (`isf_payments`) are logged individually — date, amount,
+  who recorded it, optional notes — giving a full audit trail. A bill's
+  `status` (`unpaid` / `partial` / `paid`) is derived from `amount_paid`
+  vs `amount_due`. Overpayment is rejected (`record_payment()` in
+  `includes/billing.php`).
+- **Recording a payment keeps your place.** The *Record Payment* link carries
+  the current status filter, search term and **page number**, and ends in
+  `#payment-form-<bill_id>`, so the page scrolls to the inline form (clear
+  of the mobile top bar) and focuses the amount field. The form posts back
+  to the same URL, so after saving you return to the same page of the same
+  list; validation errors show inside the form with your input kept.
+- **Members** see all their bills across periods, their outstanding balance,
+  and each bill's payment history (`member/billing.php`). Only officers
+  record payments, as cash is collected by the association.
+
+### Dashboard calendar
+
+The officer and member dashboards show a month calendar under the stat
+cards (admins have no calendar).
+
+- **Content:** water-release windows (`rotation_schedules`) and
+  pending/approved reservations, merged per day. Rejected and cancelled
+  reservations are left out. Multi-day events mark every day they touch
   (`expand_event_across_days()` in `includes/calendar_events.php`).
-- **How it loads:** the current month's events are queried server-side
-  and embedded directly in the page (`window.BAMBOSA_CALENDAR_INITIAL` in
-  the dashboard's inline `<script>`), so the calendar has content
-  immediately on page load. Clicking the prev/next month arrows then
-  fetches that month's events as JSON from `calendar_data.php`
-  via `fetch()`, so browsing other months doesn't reload the whole page.
-  All the grid rendering, month navigation, and day-click handling is
-  plain vanilla JS in `assets/js/dashboard-calendar.js` — no calendar
-  library, consistent with the rest of the stack.
-- `calendar_data.php` only requires the person be logged in (either
-  role); it doesn't use `require_role()` like most pages since both roles
-  hit the same endpoint, but scopes every query to the session's own
-  `user_id`/role internally so a member can never pull another member's
-  reservations or an officer-only view through it.
-- **Why this file lives at the project root, not in `includes/`:**
-  `includes/.htaccess` has `Require all denied`, which blocks *all*
-  direct HTTP access to that folder outright — it's meant only for
-  library files loaded via `require_once`, never fetched directly by the
-  browser. An AJAX endpoint the browser calls with `fetch()` needs to be
-  somewhere actually reachable, so `calendar_data.php` sits next to
-  `index.php`/`login.php` at the project root instead, and only
-  `require_once`s what it needs from `includes/` and `config/` (the same
-  pattern every other root-level page already uses).
+- **Scope:** members see their own sector(s)' schedules and their own
+  reservations; officers see everything.
+- **Layout:** a large month grid with a day-detail panel beside it (below it
+  on narrow screens), styled by `.dash-calendar`.
+- **Loading:** the current month is rendered server-side and embedded in
+  the page (`window.BAMBOSA_CALENDAR_INITIAL`); the prev/next arrows fetch
+  other months as JSON from `calendar_data.php`. The grid, navigation and
+  day clicks are vanilla JS in `assets/js/dashboard-calendar.js`.
+- `calendar_data.php` answers officers and members only (401 when logged
+  out, 403 for admins) and scopes every query to the session user.
 
-## Responsive UI / mobile sidebar
+---
 
-All dashboard pages (officer and member) share two partials —
-`includes/partials/officer_sidebar.php` and `includes/partials/member_sidebar.php`
-— so nav links, active-state highlighting, and the mobile drawer markup
-only need to be maintained in one place per role.
+## 6. System configuration & infrastructure
 
-- **Desktop (>880px):** sidebar is a fixed-width column, as before.
-- **Mobile/tablet (≤880px):** the sidebar becomes a slide-in drawer,
-  hidden off-screen by default. A green topbar (`.dash-topbar`) appears
-  with a hamburger button; tapping it slides the drawer in over a dark
-  overlay (`.dash-overlay`). Tapping the overlay, the ✕ close button, or
-  any nav link inside the drawer closes it again.
-- The toggle logic lives in `assets/js/dashboard.js` — plain vanilla JS,
-  no build step or framework, consistent with the rest of the stack. It
-  looks for `#dashSidebar` / `#dashOverlay` and any `[data-drawer-toggle]`
-  / `[data-drawer-close]` elements, so adding the drawer to a future page
-  is just: include the sidebar partial + `<script src="/assets/js/dashboard.js">`.
-- Every `<table class="data-table">` is wrapped in a `.table-scroll` div,
-  so wide tables (member lists, farm lots, reservations, schedules) scroll
-  horizontally on narrow screens instead of squeezing columns unreadably.
-- Forms (`.form-row`), the landing page hero/nav, and the login/signup
-  cards all have breakpoints so nothing overflows or overlaps below
-  ~480px width.
-- To add a new dashboard page later: copy the pattern in any existing
-  `officer/*.php` or `member/*.php` file — set `$activeNav`, open
-  `<div class="dash-shell">`, `include` the relevant sidebar partial,
-  add `<main class="dash-main">`, and include `dashboard.js` before `</body>`.
+### Timezone
 
-## Timezone configuration
-
-PHP and MySQL each keep their own timezone, and by default they often
-disagree (PHP falls back to UTC unless `php.ini` says otherwise; MySQL
-follows the server's operating-system zone). Anything that mixes the two
-then goes subtly wrong — e.g. `includes/password_reset.php` stamps a reset
-token's expiry with PHP's clock but checks it against MySQL's `NOW()`, and
-`includes/schedules.php` compares schedule end times with `NOW()`.
-
-`config/timezone.php` fixes this with one setting:
+PHP and MySQL keep separate timezones that often disagree (PHP defaults to
+UTC unless `php.ini` says otherwise; MySQL follows the server OS). Anything
+that mixes them goes subtly wrong — e.g. a password-reset link is stamped
+with PHP's clock but checked against MySQL's `NOW()`, and schedule times
+are compared with `NOW()`. `config/timezone.php` fixes that with one line:
 
 ```php
 const APP_TIMEZONE = '';   // '' = not configured; e.g. 'Asia/Manila'
 ```
 
-- **Not configured → nothing changes.** With the default empty string (or
-  a missing file, or a value that isn't a valid PHP timezone identifier —
-  logged to the PHP error log), neither PHP nor MySQL is touched; both keep
-  whatever the server gave them. A typo can never half-apply.
-- **Configured → both are synced.** `includes/session.php` (loaded first on
-  every page) calls `date_default_timezone_set()`, and `config/database.php`
-  runs `SET time_zone` on each new database connection
-  (`includes/timezone.php`). If MySQL/MariaDB has no timezone tables loaded
-  (common on a fresh XAMPP, where named zones such as `Asia/Manila` aren't
-  recognised), the equivalent UTC offset (`+08:00`) is used automatically.
-- **Verify it:** the admin sidebar has a **System Clock** page (`admin/system_clock.php`) showing
-  PHP's and MySQL's timezone and current time side by side, with a warning
-  if they disagree (and a hint if no timezone is configured yet).
-- **Existing data:** `DATETIME` columns (e.g. schedule start/end) hold the
-  clock time as entered and are not converted. `TIMESTAMP` columns
-  (`created_at`, `login_time`, …) are stored as UTC and shown in the
-  connection's zone, so setting or changing the timezone changes how
-  already-stored `TIMESTAMP` values display. Choose the zone once, early.
-- The file sits in `config/`, protected by `config/.htaccess`
-  (`Require all denied`) like `database.php` and `smtp.php`.
+- **Not configured → nothing changes.** An empty value, a missing file, or
+  an invalid identifier (logged to the PHP error log) leaves both PHP and
+  MySQL exactly as the server set them. A typo can never half-apply.
+- **Configured → both are synced.** `includes/session.php` (first on every
+  page) calls `date_default_timezone_set()`, and `config/database.php` runs
+  `SET time_zone` on each connection (`includes/timezone.php`). If MySQL has
+  no timezone tables (common on a fresh XAMPP), the equivalent offset such
+  as `+08:00` is used automatically.
+- **Verify it** on the admin **System Clock** page.
+- **Existing data:** `DATETIME` columns (e.g. schedule start/end) keep the
+  clock time as entered. `TIMESTAMP` columns (`created_at`, `login_time`, …)
+  are stored as UTC and displayed in the connection's zone, so setting or
+  changing the timezone changes how existing values display. Choose it once,
+  early.
 
-## Custom error pages
+### Outgoing email
+
+Two features send email through **PHPMailer 6.12.0** (core files only,
+vendored in `vendor/phpmailer/phpmailer/src/`; no Composer, no OAuth/POP3):
+
+- **Forgot password** — `forgot_password.php` emails a time-limited,
+  single-use reset link to a real, non-deactivated account;
+  `reset_password.php` is where it lands.
+- **Account-activation notice** — sent when an **officer** approves a
+  `pending` member in Member Management (`officer/update_status.php`). It
+  fires only on that `pending → active` change. *(Changing a member's
+  status through the admin's User Management does not send it.)*
+
+**Setup:** fill in `config/smtp.php` (host, port, username, password,
+encryption, from-address — it includes worked examples for Gmail with an App
+Password, Outlook/Microsoft 365 and cPanel mailboxes) and set
+`SMTP_ENABLED = true`. Everything else works without email.
+
+**Graceful degradation.** With email off (the default) or misconfigured —
+including a missing `vendor/phpmailer` folder — nothing breaks:
+
+- The forgot-password page always shows the same "if that email is
+  registered, a link has been sent" message, whether or not the address
+  exists or the email went out. This is deliberate anti-enumeration, so the
+  form can't be used to fish for valid addresses.
+- Account activation always succeeds in the database; the notice is
+  best-effort.
+- Every failure is caught in `send_email()` (`includes/mailer.php`) and
+  written to `error_log()`; it never surfaces as a broken page. Check the PHP
+  error log to see why an email didn't arrive.
+
+**Reset-token security**
+- Only the SHA-256 hash of a random 32-byte token is stored
+  (`password_resets.token_hash`); the raw token exists only in the emailed
+  link.
+- Tokens are single-use and expire after 30 minutes
+  (`PASSWORD_RESET_TTL_MINUTES`). `consume_password_reset()` marks a token
+  used in the same transaction as the password change, so two simultaneous
+  requests can't both succeed. Comparison uses `hash_equals()`.
+- SMTP encryption is mapped explicitly to STARTTLS or implicit TLS; there is
+  no silent fallback to an unencrypted connection.
+
+### Custom error pages
 
 Six branded static pages live in `error/`: `400.html` (Bad Request),
 `401.html` (Unauthorized), `403.html` (Forbidden), `404.html` (Not Found),
 `500.html` (Internal Server Error) and `503.html` (Service Unavailable).
 
-- **Self-contained on purpose:** each file has its own inline CSS and icon
-  and depends on no other file, so it still renders from any URL depth and
-  even when the app/database is down. They match the app's green/blue look,
-  work on mobile, and are marked `noindex`.
-- **Wiring (Apache/XAMPP):** the root `.htaccess` maps each status code to
-  its page with `ErrorDocument`. This also gives the 403 responses from the
-  `Require all denied` rules in `config/`, `includes/` and `sql/` a proper
-  page. The `ErrorDocument` paths include the install folder
+- **Self-contained:** each file has its own inline CSS and icon, so it
+  renders from any URL depth and even when the app or database is down. They
+  are responsive and marked `noindex`.
+- **Wiring (Apache/XAMPP):** the root `.htaccess` maps each status to its
+  page with `ErrorDocument`, which also covers the 403s from the
+  `Require all denied` folders. The paths include the install folder
   (`/bambosa/error/404.html`) — **this is the only place the folder name is
-  needed.** If you rename or move the project, find-and-replace `/bambosa`
-  in those six lines (use `/error/404.html` etc. at the web root). Keep
-  them as local paths, not full URLs, or Apache redirects instead of
-  returning the real status code.
-- **Buttons:** every page has *Back to Home*, plus *Go Back* (400/404),
+  needed**. If you rename or move the project, find-and-replace `/bambosa`
+  in those six lines (use `/error/404.html` etc. at the web root). Keep them
+  as local paths, not full URLs, or Apache redirects instead of returning the
+  real status code.
+- **Buttons:** *Back to Home* on every page, plus *Go Back* (400/404),
   *Log In* (401/403) or *Try Again* (500/503). A few lines of JS find the
-  project root automatically, so the pages need no editing when the folder
-  changes: a URL inside `admin/`, `officer/`, `member/`, `error/` or
-  `assets/` gives the root directly; otherwise (e.g. `/irrigation/missing`)
-  the page checks which parent folder really contains `error/400.html`
-  (deepest first) with a quick `HEAD` request. Without JavaScript, the
-  buttons fall back to the web root (`/`). The 404 page also shows the
-  address that was requested.
-- **Built-in server (`serve.bat`):** `php -S` ignores `.htaccess`, so
-  `serve.bat` now starts it with `error/router.php`, which returns the 404
-  page for missing files, 400 for malformed paths, and 403 for `.htaccess`
-  files and folders protected by `Require all denied` — matching Apache.
-- **What triggers them:** 404/403/400 happen automatically (missing page,
-  protected folder, bad request). 500 appears when PHP fails fatally with
-  display of errors turned off (keep `display_errors` off outside local
-  development). 503 shows while Apache is overloaded/in maintenance. The app
-  itself redirects logged-out users to the login page, so 401 is only shown
-  if the web server returns it.
-- To preview a page, open `http://localhost/bambosa/error/404.html`
-  directly.
+  project root: a URL inside `admin/`, `officer/`, `member/`, `error/` or
+  `assets/` gives it directly; otherwise the page checks which parent
+  folder really contains `error/400.html` (a quick `HEAD` request). Without
+  JavaScript the buttons fall back to `/`. The 404 page also shows the
+  requested address.
+- **Built-in server:** `php -S` ignores `.htaccess`, so `serve.bat` starts it
+  with `error/router.php`, which returns the 404 page for missing files, 400
+  for malformed paths and 403 for `.htaccess` files and `Require all denied`
+  folders, like Apache.
+- **When they appear:** 404/403/400 happen automatically; 500 on a fatal PHP
+  error with `display_errors` off (keep it off outside local development);
+  503 when Apache is overloaded or in maintenance. The app redirects logged-out
+  users to the login page itself, so 401 only appears if the web server
+  returns it.
+- Preview any page at `http://localhost/bambosa/error/404.html`.
 
-## Roles at a glance
+### Works from any subdirectory
 
-| | Member | Officer | Admin |
-|---|---|---|---|
-| Self-register via `signup.php` | ✅ (starts `pending`) | ❌ | ❌ |
-| Edit own name / contact / email / password | ✅ | ✅ | ✅ |
-| View own farm lots, bills, schedule, reservations | ✅ | — | — |
-| Manage members' farm lots, sectors, billing, schedules, machinery, reservations | ❌ | ✅ | ❌ |
-| Approve / deactivate **member** accounts | ❌ | ✅ | ✅ |
-| Add / edit / delete **officer & admin** accounts | ❌ | ❌ | ✅ |
-| View every user's login history (`login_logs`) | ❌ | ❌ | ✅ |
-| Check the PHP/MySQL system clock | ❌ | ❌ | ✅ |
-| Add / edit / delete **member** accounts (incl. role & status changes) | ❌ | ❌ | ✅ |
-| Dashboard | `member/dashboard.php` | `officer/dashboard.php` | `admin/dashboard.php` |
+No link, form action, asset URL or redirect hardcodes a leading `/`. Every
+one is built with `base_url($path)`, which resolves against a
+`BAMBOSA_BASE_PATH` constant detected once per request from
+`$_SERVER['SCRIPT_NAME']` (both live in `includes/base_path_utils.php`).
+The same code therefore runs from the domain root, `/bambosa/`, or a deeply
+nested folder with no configuration, and the session cookie path follows the
+detected base.
 
-## Admin role
-
-A third role, `admin`, is the "master key" for accounts. Admins log in at
-the normal login page and land on `admin/dashboard.php`.
-
-- **User Management** (`admin/users.php`): one list of every account
-  (admins, officers, members) with role tabs, status tabs, search, and
-  pagination.
-- **Add** (`admin/user_edit.php`): create an account of any role with a
-  chosen status (so officers/admins can be provisioned without touching the
-  database) and an initial password (min. 8 characters).
-- **Edit** (`admin/user_edit.php?id=…`): change name, email, contact, role,
-  status, and optionally set a new password (blank keeps the current one).
-  Email must be valid and unique.
-- **Delete** (`admin/user_delete.php`, POST + CSRF): permanently removes an
-  account. Database cascades also remove a member's farm lots, reservations
-  and ISF bills/payments; records an officer merely created (schedules,
-  machinery, recorded payments) are kept with the author cleared. The
-  confirmation dialog warns about this.
-- **User Login Logs** (`admin/login_logs.php`, sidebar + dashboard
-  shortcut): read-only history of every successful login by any role,
-  newest first, from the `login_logs` table (written by `login.php`).
-  Shows date/time, user name, email, role, and IP address. The search box
-  matches name, email, role, IP address, or the timestamp text (e.g.
-  `2026-10`), and results are paginated (15 per page). Deleting an account
-  also deletes its log rows (database cascade), so only existing users
-  appear.
-- **IP address details** (`admin/ip.php?address=…`): every IP address in
-  the login logs is a link to this page — a map on the left (stacked on top
-  on phones) and the details on the right: country, region, city, ZIP,
-  coordinates, timezone and local time there, currency, ISP, organization,
-  AS number/name, reverse DNS, and Yes/No flags for mobile network, proxy/VPN
-  and hosting/data center. Data comes from the free
-  [ip-api.com](https://ip-api.com/docs) JSON API, looked up **server-side**
-  by `includes/ip_lookup.php` (so it stays admin-only and avoids browser
-  mixed-content blocks). Things to know:
-  - Local/private addresses (`127.0.0.1`, `::1`, `192.168.x.x`, …) have no
-    public location, so they're not sent to the API; the page explains this.
-    On a local install most logins will show one of these.
-  - The free endpoint is **HTTP only** (the looked-up IP travels
-    unencrypted; nothing else is sent), limited to about 45 requests per
-    minute, and meant for non-commercial use. Results are cached for 24
-    hours in the system temp folder; a rate-limit or network failure shows a
-    friendly message with a "Try again" link. For HTTPS/commercial use, switch
-    to a paid ip-api key (`IP_API_BASE` in `includes/ip_lookup.php`).
-  - IP geolocation is approximate (city/ISP level), so the map shows the
-    point plus a ~5 km circle rather than a precise pin.
-  - The address in the URL is validated with `filter_var()` before use, and
-    everything shown is HTML-escaped.
-- **Own account**: `admin/profile.php` works like every other profile page
-  (name, contact, email — which needs the current password — and password).
-- **Safety rules** (`user_change_guard_error()`): an admin can't delete,
-  demote, or deactivate their own account from user management, and the
-  last active admin can never be deleted, demoted, or deactivated — so the
-  system can't be locked out of admin access.
-- Admins manage **accounts only**; day-to-day association records (lots,
-  billing, schedules, machinery) stay with officers.
-- Officers can still approve/deactivate **member** accounts from
-  `officer/members.php`, but `officer/update_status.php` now refuses to
-  touch admin or officer accounts.
-
-## Account self-service (profile & password) — all roles
-
-Every logged-in user — officer or member — can update their own name,
-contact number, and password without needing another officer to do it
-for them:
-
-- **Members**: `member/profile.php` — account info (name, contact) plus
-  password change, above the read-only farm-lot table already described
-  in Epic 2 above.
-- **Officers**: `officer/profile.php` — same account info + password
-  change form, linked from a new "My Profile" item in the officer
-  sidebar (there previously wasn't one; officers had no self-service
-  page at all).
-- **Email is editable** on all profile pages. Because it is the login name
-  and password-reset address, changing it requires the current password
-  (`verify_user_password()` in `includes/members.php`); it must be a valid
-  address not used by another account. No verification link is sent to the
-  new address.
-- **Password changes** require the current password to be entered and
-  verified (`change_user_password()` in `includes/members.php`) before a
-  new one is accepted — this stops a hijacked/unattended logged-in
-  session from being used to lock the real owner out by changing their
-  password. Both roles share the same function, since there's nothing
-  role-specific about changing your own password. The new password must
-  be at least 8 characters (same rule signup.php already enforces) and
-  must be entered twice to catch typos.
-- Both forms are on the same page but distinguished by a hidden
-  `form=password` field, so the two `<form>`s can post to the same
-  endpoint (`member/profile.php` / `officer/profile.php`) without
-  interfering with each other, and each shows its own success/error
-  state independently.
-- **What's still officer-only:** role, status (active/inactive/pending),
-  and farm lot data are unchanged — those still require another officer
-  to edit, exactly as before, since self-editing status or land area
-  would be a billing/security integrity risk (see Epic 2 above for why).
-
-## Epic 2: Member & Farm Management (implemented)
-
-- `farm_lots` table stores one or more land parcels per member: name/label,
-  sector, land area (ha), a drawn boundary polygon (`boundary_geojson`),
-  and notes. `latitude`/`longitude` are also stored, but only as a value
-  derived from the polygon — see "Farm Lot Polygons" below.
-- **Officers** can: view all members with status filters (all/pending/active/inactive),
-  approve pending signups, deactivate/reactivate accounts, and add/edit/delete
-  farm lots for any member (`officer/member_view.php`).
-- **Members** can: update their own name/contact number, and view (read-only)
-  their registered farm lots and total land area (`member/profile.php`).
-  Land area and sector are officer-managed only, since they directly drive
-  ISF billing in Epic 3 — self-editing would create a billing integrity risk.
-- All data access goes through `includes/members.php` (prepared statements only).
-- **Location is set by drawing a boundary, not by picking a point.** The
-  farm lot form has a single map (`assets/js/farm-lot-boundary.js`,
-  Leaflet.draw) for drawing the lot's actual shape as a polygon — see
-  "Farm Lot Polygons" below for the full writeup of how that works and why
-  there's no separate point-picker or coordinate fields anymore.
-
-## Machinery Reservation System (implemented — revised: machinery groups, stock-aware approval, damage tracking)
-
-- `machinery_groups` table: pools of interchangeable equipment (e.g.
-  "Hand Tractors"). `machinery.group_id` (nullable) optionally assigns a
-  machine to one. `machinery.damage_level` (0-100) is an officer-set
-  condition slider, visible to members before they request equipment.
-- `machinery_reservations` holds member requests with a
-  `pending → approved/rejected` (or `cancelled`) status flow, plus a
-  required `rejection_remark` whenever a request is rejected.
-
-### Why machinery groups exist (client feedback)
-
-Before this revision, a member reserved one *specific* machine. If the
-association owned several interchangeable units of the same equipment
-(three hand tractors, say) and a member happened to pick the one that was
-already booked, the officer's only option was to reject the whole
-request — even though a sibling tractor sat free the entire time —
-forcing the member to resubmit and guess again. Machinery groups fix
-this:
-
-- **A member reserves a GROUP, not a specific unit.** The reservation
-  form (`member/machinery.php`) shows machinery **pools** ("Hand
-  Tractors — 2 units available") alongside any standalone, ungrouped
-  machines reserved directly as before. Grouping is opt-in per machine —
-  a machine with no group behaves exactly as it always did.
-- **A group only appears on the form if at least one unit in it is
-  currently marked available.** A group where every unit is broken
-  down/unavailable is hidden entirely rather than shown with nothing
-  bookable in it, per the client's request.
-  (`get_available_machinery_groups()` in `includes/machinery.php`.)
-- **An officer assigns the specific unit at approval time**, not the
-  member at request time. Approving a group-targeted request
-  (`officer/reservations.php` → "Assign & Approve") opens
-  `officer/reservation_assign.php`, which lists every unit in that group
-  that's both marked available AND has no overlapping pending/approved
-  reservation for the requested dates — an officer picks one, and that
-  choice becomes the reservation's actual `machinery_id`.
-- **If a group is fully booked for the requested dates, approval is
-  disabled entirely** — the reservations list shows a "No stock
-  available" badge and swaps the Approve action for a plain note; the
-  only remaining action is **Reject, with a required remark**, per the
-  client's explicit instruction. This is enforced both in the UI and in
-  `assign_and_approve_reservation()` itself (which re-validates
-  availability at the moment of submission, not just when the page
-  loaded, in case another request got approved first).
-- **Standalone (ungrouped) machines are unaffected** — a request against
-  one still goes straight to a direct Approve/Reject on the reservations
-  list, no assignment step, exactly as before this feature existed.
-
-### Damage / condition tracking
-
-- Every machine has a `damage_level` (0-100, 0 = pristine, 100 = fully
-  damaged), edited via a slider on `officer/machinery.php`'s add/edit
-  form. A small color-coded condition bar (green under 34%, amber 34-66%,
-  red 67%+ — `damage_severity_class()` in `includes/machinery.php`) shows
-  it consistently everywhere it appears: the officer's machinery list,
-  the unit-assignment page, and a dedicated "Equipment Condition"
-  reference table on the member reservation form — so members can see a
-  machine's condition before requesting it, per the client's request.
-
-### Rejection remarks
-
-- `machinery_reservations.rejection_remark` is required (enforced in
-  `officer/reservations.php`) whenever a request is rejected — a plain
-  status change to "rejected" with no explanation isn't accepted. The
-  remark is shown to the member on their own reservation history
-  (`member/machinery_history.php`) so they know why, and to the officer
-  inline on the reservations list.
-- **Editing a remark after rejection:** rejected rows on
-  `officer/reservations.php` have an **Edit Remark** action that opens the
-  same inline form, pre-filled with the saved remark. It posts
-  `reservation_action=edit_remark`, handled by `update_rejection_remark()`
-  in `includes/machinery.php`, which only updates rows whose status is still
-  `rejected` and never changes the status. The remark stays required and is
-  capped at 255 characters (the column size); the member sees the updated
-  text on their reservation history immediately.
-
-### Conflict/overlap detection (unchanged in spirit, extended to groups)
-
-- `has_overlapping_reservation()` in `includes/machinery.php` does the
-  same simple date-range overlap check as before, for a specific machine.
-  `get_available_machinery_in_group()` is the group-aware equivalent —
-  used both as a soft heads-up when a member submits a group request
-  (informational only; the request still goes in as pending, since more
-  units could free up before it's reviewed) and as the hard gate at
-  approval time described above.
-- This remains "flag, don't block" at request time — the officer always
-  makes the final call — but approval of an already-fully-booked group is
-  now a genuine hard block, not just a flag, per the client's requirement.
-
-### UI refinements (client feedback round 2)
-
-- **Sidebar relabeled.** "Machinery Reservation" is now **"Machinery
-  Inventory"** — it manages a list of equipment, not reservations
-  themselves, so the old label was describing the wrong thing.
-- **"Reservation Requests" is now its own sidebar item**, with a red badge
-  showing the current pending-request count (hidden entirely when it's
-  zero, capped at displaying "99+"). It links straight to
-  `officer/reservations.php`, which previously had no sidebar entry of
-  its own — it was only reachable via a text link from the machinery
-  page, which is also why that text link ("See reservation requests to
-  approve or reject bookings") was removed from
-  `officer/machinery.php` once the sidebar made it redundant. The count
-  is computed inside `includes/partials/officer_sidebar.php` itself
-  (`count_reservations($pdo, 'pending')`), not passed in by each page, so
-  every officer page shows an accurate badge without needing to remember
-  to calculate one.
-- **Table header clarity.** The machinery list's "Group" column is now
-  **"Type/Group"**, since not every machine belongs to a group and the
-  original label read oddly for standalone equipment.
-- **Standalone machinery relabeled for clarity.** The member reservation
-  form's dropdown already listed ungrouped machines (it always could be
-  reserved directly) under an "Individual machines" heading, next to
-  "Equipment pools" — just worded in a way that made it easy to miss.
-  That heading is now **"Standalone Machinery"**, matching the
-  "Type/Group" terminology used elsewhere, so it reads as a parallel
-  option to equipment pools rather than an easily-overlooked afterthought.
-- **Reservation history + equipment condition moved to their own page**
-  (`member/machinery_history.php`), reachable via a new "Reservation
-  History" sidebar item, so `member/machinery.php` (Reserve Machinery)
-  stays focused on just submitting a new request. Both tables on the new
-  page have independent search and pagination — searching or paging
-  through one never disturbs the other's current state, via separate
-  query params (`?q=`/`?page=` for reservation history, `?cq=`/`?cpage=`
-  for equipment condition). This required extending
-  `render_search_box()`/`render_pagination_controls()` in
-  `includes/pagination.php` with an optional parameter-name override
-  (defaulting to the original `q`/`page`, so every other existing call
-  site across the app needed zero changes) and adding
-  `count_reservations_by_user()` alongside an extended
-  `get_reservations_by_user()` that now supports the same
-  search/pagination pattern as `get_all_reservations()`.
-
-### Migration note
-
-`sql/migrations/006_machinery_groups.sql` adds `machinery_groups`,
-`machinery.group_id`/`damage_level`, and
-`machinery_reservations.group_id`/`rejection_remark` (plus makes
-`machinery_id` nullable there) for an existing database — already
-included in `sql/bambosa_db.sql` for a fresh install. Every existing
-machine and reservation is completely unaffected: they default to
-`group_id = NULL` / `damage_level = 0`, exactly the pre-existing
-standalone behavior, until an officer actually creates a group and
-assigns machines to it.
-
-## Rotation Scheduling — basic viewer (implemented — simplified version)
-
-- `rotation_schedules` table: one row per water-release window for a sector
-  (start/end datetime, notes, which officer posted it).
-- **Officers** create/edit/delete schedule entries (`officer/schedules.php`).
-- **Members** see the upcoming schedule filtered to their own farm lot's
-  sector(s), plus a full reference list of all sectors' upcoming releases
-  (`member/schedule.php`).
-- This is the straightforward CRUD + listing version described in the
-  capstone's Epic 4, extended with the same lightweight conflict-flagging
-  approach used for machinery reservations: `has_overlapping_schedule()` in
-  `includes/schedules.php` checks whether a sector already has another
-  schedule entry overlapping a given time window. `officer/schedules.php`
-  shows a "⚠ Overlap" badge on any row that overlaps another entry in the
-  same sector, and shows a warning banner after saving one that does.
-  As with machinery, this is informational only — schedules are still an
-  officer judgment call, since an intentional correction or extension can
-  legitimately overlap an existing window.
-
-### Applying the same schedule to multiple sectors at once
-
-Client request: several sectors often need the exact same water-release
-window (same day, same start/end time), and re-typing it once per sector
-was tedious. `officer/schedules.php` now has an "Also create/apply this
-same schedule to other sectors" checkbox on the create/edit form:
-
-- **Unchecked (default):** behaves exactly as before — one sector, one
-  schedule entry.
-- **Checked:** reveals a scrollable list of every other sector as
-  checkboxes. Whichever ones are checked get their own schedule row
-  created with the identical start time, end time, and notes as the
-  primary sector chosen in the dropdown above. The sector currently
-  selected in that dropdown is automatically disabled in the checkbox
-  list (can't double-apply the schedule to the same sector twice); this
-  is enforced with JS for a responsive UI, and independently by
-  `array_unique()` server-side regardless of whether JS ran.
-- **Editing a schedule that's part of a group:** the checkbox comes
-  pre-checked, and the sectors it already shares this schedule with are
-  pre-checked in the list, matching what the client asked for. Editing the
-  time/notes and saving propagates the change to every checked sector's
-  row. Unchecking a sector that used to share the schedule **ungroups**
-  it — that sector's schedule entry stays exactly as it was, it just stops
-  being kept in sync with this one going forward. It does not get
-  deleted: the assumption is unchecking means "stop linking these," not
-  "get rid of that sector's schedule," so it becomes a normal standalone
-  entry the officer can still edit or delete directly afterwards if
-  removing it entirely really was the goal. Editing back down to a single
-  sector (or a schedule that was never grouped) behaves as a normal
-  single-sector edit.
-- **Data model:** rather than trying to infer "the same schedule" from
-  matching timestamps (fragile — two officers could coincidentally create
-  identical-looking but unrelated entries), a nullable
-  `rotation_schedules.group_id` column explicitly tags rows created/kept
-  together as one batch. `NULL` means a standalone entry, exactly like
-  every schedule created before this feature existed — nothing about
-  existing data changes. See `sql/migrations/004_schedule_groups.sql` for
-  an existing database, already included in `sql/bambosa_db.sql` for a
-  fresh install.
-- **Conflict checking** (the "⚠ Overlap" badge above) runs across every
-  sector the schedule will end up covering, not just the primary one, so
-  a conflict hiding in one of the "other sectors" isn't missed — and
-  correctly excludes each sector's own existing row when editing, so an
-  unchanged sibling doesn't flag as "conflicting with itself."
-- The schedules table shows a "Shared" badge next to any entry that's
-  part of a multi-sector group, so it's clear at a glance which schedules
-  aren't standalone.
-- New functions in `includes/schedules.php`: `create_schedule_group()`
-  (used on create when 2+ sectors are involved),
-  `update_schedule_group()` (reconciles an edit against whichever sectors
-  end up checked — updates existing rows, inserts new ones, ungroups
-  (never deletes) unchecked ones), and `get_sibling_schedule_sector_ids()`
-  (what pre-checks the list when editing).
-
-## Sector Management (implemented)
-
-- `officer/sectors.php` — full CRUD for the `sectors` table: create, edit,
-  and delete sectors, with duplicate-name checking (case-insensitive).
-- The table also shows, per sector, how many farm lots and how many
-  rotation schedules currently reference it (`get_sectors_with_usage()` in
-  `includes/members.php`), so an officer can see what depends on a sector
-  before deleting it.
-- Deleting a sector is allowed even if farm lots/schedules reference it,
-  but the delete button shows a confirmation dialog naming exactly how many
-  of each will be affected — farm lots get unassigned (`sector_id` set to
-  NULL) while rotation schedules under that sector are permanently deleted,
-  matching the two different foreign-key behaviors already defined in the
-  schema (`ON DELETE SET NULL` vs `ON DELETE CASCADE`).
-- Sector management is officer-only; members are assigned to a sector via
-  their farm lot record (Epic 2) and never manage sectors directly.
-
-## Farm Map view (implemented — web-based equivalent of QGIS mapping)
-
-The capstone paper describes using **QGIS** (desktop GIS software) to
-manage member/farm location data. QGIS itself isn't a web technology and
-can't be embedded in a browser, so what's built here is the web platform's
-own visualization layer over the same underlying data: an interactive map
-using **Leaflet.js** (open-source, no API key) with **OpenStreetMap** tiles,
-both loaded from a CDN.
-
-- `officer/map.php` — draws every farm lot that has a drawn boundary as its
-  actual shape, filled with its sector's color (with a legend), and any
-  drawn sector boundaries as dashed outlines underneath. Clicking a lot
-  opens a popup (no separate hover tooltip, which doubled up on touch screens) with its name, owner, sector, and hectares, plus a link straight to that
-  member's record. If any farm lots have no boundary drawn, a banner tells
-  the officer how many, so incomplete data entry is visible rather than
-  silently skipped.
-- `member/map.php` — scoped to just the logged-in member's own farm lot(s),
-  consistent with the read-only pattern already used on `member/profile.php`.
-  This map draws **only each lot's boundary polygon** (`boundary_geojson`) —
-  `latitude`/`longitude` are just the precomputed centroid of that shape,
-  so they are no longer plotted as pins. A lot with no drawn boundary
-  (including any legacy point-only record) isn't shown on the map; the page
-  tells the member how many of their lots are missing a boundary so they
-  can ask an officer to draw it.
-- No new database tables were needed for the point-based version of this —
-  it reads `farm_lots.latitude` / `farm_lots.longitude`, and (for drawn
-  shapes) `farm_lots.boundary_geojson` — see "Farm Lot Polygons" below.
-  Data-access functions live in `includes/members.php`
-  (`get_mapped_farm_lots()`, `count_unmapped_farm_lots()`) and
-  `includes/farm_lot_boundaries.php` (`get_farm_lots_with_boundaries()`).
-- Sector marker colors are assigned dynamically from a fixed palette based
-  on whatever sector names exist in the `sectors` table, so adding a 4th,
-  5th, etc. sector via `officer/sectors.php` just works without code changes.
-- If a real QGIS-exported dataset (e.g. a GeoJSON or shapefile-derived
-  table of farm boundaries) becomes available later, this map is the
-  natural place to layer it in — Leaflet supports GeoJSON overlays directly.
-
-## Sector Boundaries & Auto-Assignment (implemented)
-
-Since a real QGIS-exported boundary dataset for Barangay Bikal isn't
-available yet, this lets an officer **draw** each sector's boundary
-directly on the map instead, using the same fundamental technique a GIS
-tool uses for a spatial join: point-in-polygon testing. Farm lots whose
-coordinates fall inside a drawn boundary can then be assigned to that
-sector automatically.
-
-**How it works:**
-- `officer/sector_boundaries.php` — pick a sector from the dropdown, draw
-  its boundary as a polygon using **Leaflet.draw** (CDN-loaded, no API
-  key), edit/reshape it, then save. Other sectors' saved boundaries are
-  shown dimmed on the map for spatial context while you draw. A live
-  "Preview Matches" button shows which farm lots would fall inside the
-  polygon before you commit anything. Farm lots appear on this map as their
-  own drawn boundary shapes (filled with their current sector's color; the
-  "Show farm lots on map" checkbox toggles them) rather than lat/lng pins.
-  Lots with no drawn boundary aren't shown. The matching itself is
-  unchanged and still uses each lot's stored centroid (`latitude`/`longitude`)
-  server-side.
-- Boundaries are stored as a JSON array of `[lat, lng]` vertex pairs in a
-  new `sectors.boundary_geojson` column — intentionally simple (not full
-  GeoJSON Feature wrapping) since that's exactly the vertex list
-  Leaflet.draw hands back, and PHP only ever needs raw points for the
-  point-in-polygon test.
-- The point-in-polygon test itself (`point_in_polygon()` in
-  `includes/sector_boundaries.php`) is the standard ray-casting algorithm,
-  implemented in PHP as the authoritative version. A live-preview version
-  of the same logic (used while actively drawing, before saving) runs
-  server-side too, via the `officer/sector_boundary_preview.php` AJAX
-  endpoint — there's no separate JS re-implementation of the math to keep
-  in sync.
-- **Auto-assignment behavior:**
-  - Saving a boundary can optionally re-run assignment across **every**
-    farm lot with coordinates (checkbox, on by default) — only lots whose
-    sector would actually change are updated; already-correct lots are
-    left alone.
-  - On the farm lot form (`officer/member_view.php`), a per-save checkbox
-    lets an officer auto-assign just that one lot's sector from whatever
-    boundary its coordinates fall inside.
-  - **If auto-assignment would overwrite a sector the officer already
-    manually selected**, the form stops and shows an explicit confirmation
-    step naming the current vs. matched sector before proceeding — it
-    never silently overwrites an existing manual assignment.
-  - **Overlapping sector boundaries are allowed.** If a point falls inside
-    more than one polygon, the first match is used, and the officer is
-    told how many sectors overlapped there, rather than the system
-    guessing silently or blocking the save.
-  - Every automatic change is logged to `sector_auto_assignments` (lot,
-    previous sector, new sector, who triggered the run, when) and shown in
-    a "Recent Auto-Assignments" table at the bottom of the boundaries page
-    — so an officer can always see what the system changed on its own, as
-    opposed to a manual edit.
-- `officer/map.php` also renders any drawn boundaries as read-only, dimmed
-  outlines beneath the farm lot shapes, so the general map view and the
-  boundary editor feel like one consistent picture of the association's
-  geography.
-- All of the drawing/preview/save interactivity is vanilla JavaScript
-  (`assets/js/sector-boundaries.js`) talking to two small JSON API
-  endpoints — no framework, consistent with the rest of the stack.
-- **Default map view:** the map centers on the sector currently being
-  edited if it already has a boundary drawn (zoomed to fit that shape),
-  or a calm view centered on the average location of all farm lots
-  (falling back to a fixed Barangay Bikal center if no lots have
-  coordinates yet) when it doesn't. Earlier this instead always zoomed to
-  fit every farm lot marker on the map regardless of which sector was
-  selected, which could land on an oddly tight or off-center view
-  depending on how the lots happened to be scattered — the corrected
-  version always shows something sensible and predictable on first load,
-  matching the same "calm default center" approach the farm lot boundary
-  editor below already used.
-
-## Farm Lot Polygons (implemented — revised)
-
-Individual farm lots are drawn as their actual shape on the map, using
-the same drawing tool as sector boundaries, applied one level down to an
-individual lot. **A farm lot's location is now defined ONLY by its drawn
-boundary polygon** — there is no separate point-picker map, and
-latitude/longitude are no longer manually editable fields.
-
-- **`farm_lots.boundary_geojson`** stores the polygon: a JSON array of
-  `[lat, lng]` vertex pairs, drawn with Leaflet.draw — same format
-  `sectors.boundary_geojson` uses. `sql/migrations/003_farm_lot_polygons.sql`
-  adds this column to an existing database; a fresh install already has it
-  via `sql/bambosa_db.sql`.
-- **`latitude`/`longitude` are purely derived, never directly edited.**
-  They exist only so anything that needs a single point — the
-  point-in-polygon sector auto-assignment check, and the mapped-lot list
-  queries — doesn't need to know about polygons at all. Saving a lot
-  computes both from the polygon's **centroid** (`polygon_centroid()` in
-  `includes/farm_lot_boundaries.php`, a simple vertex average — precise
-  enough at farm-lot scale, no extra math library needed) and writes them
-  together with the polygon in the same save. A lot with no polygon
-  drawn has `NULL` latitude/longitude — there's no "point but no shape"
-  state anymore.
-- **One form, one save — no separate "Save Boundary" button.** Earlier
-  drafts of this feature had the boundary map save itself via its own
-  AJAX call, independent of the rest of the lot's fields, which meant an
-  officer could save the lot's name/area without realizing the boundary
-  they'd drawn was never actually saved (or vice versa). Now the drawn
-  polygon is serialized to a hidden `<input name="boundary_points">`
-  field (`assets/js/farm-lot-boundary.js` keeps it in sync as the officer
-  draws/edits/clears the shape), and it's submitted and saved together
-  with everything else in one normal form POST
-  (`officer/member_view.php`). This also means drawing a boundary works
-  the same for a brand-new lot as for editing an existing one — there's
-  no "save the lot first, then come back to draw it" limitation anymore.
-- **Server-side**, `normalize_and_center_boundary()` in
-  `includes/farm_lot_boundaries.php` validates the submitted points (0
-  points is valid — "no boundary" — but 1 or 2 is rejected as an
-  incomplete polygon; needs at least 3) and computes the centroid, and
-  `create_farm_lot()`/`update_farm_lot()` in `includes/members.php`
-  persist the polygon and derived point together in a single query.
-- **Where it's shown:** `member/map.php`, `officer/sector_boundaries.php` and
-  `officer/map.php` render lots as their **boundary polygons only** — the centroid
-  (`latitude`/`longitude`) is never plotted there, and a lot without a drawn
-  boundary isn't shown. `officer/map.php` does the same: each lot is a
-  polygon filled with its sector's color (sector boundaries are drawn as
-  dashed outlines underneath), and clicking a lot opens a popup with its
-  details and a **View member** link to the owner's record — the same
-  behavior the old pin had.
-- Both the officer's and member's farm-lot tables (`officer/member_view.php`,
-  `member/profile.php`) show a "Drawn" / "Not drawn" badge instead of raw
-  coordinates, since the coordinates alone aren't the interesting fact
-  anymore — whether a shape exists is.
-- **Sector auto-assignment is unaffected** by any of this — it already
-  worked purely off whatever `latitude`/`longitude` ended up being on the
-  lot row, so it automatically now runs against the polygon's centroid
-  with no changes needed to `includes/sector_boundaries.php` at all.
-- **Show/hide guides while drawing.** The boundary editor on
-  `officer/member_view.php` has two independent checkboxes above the map:
-  "Show sector boundaries" and "Show other farm lots" — both overlay
-  everyone else's drawn shapes as dimmed, dashed, non-editable reference
-  layers (sectors in blue, other lots in purple) so an officer can see
-  "am I drawing inside the right sector?" or "does this overlap a
-  neighboring lot?" without those shapes getting in the way of the one
-  polygon actually being edited. Sector context defaults ON (there's
-  usually only a handful, and it's the most immediately useful
-  reference); other-lots context defaults OFF (there could be many, and
-  showing them all immediately could clutter a small lot's own outline
-  while it's still being drawn) — either can be toggled anytime. A small
-  legend above the map reflects whichever layers are currently visible.
-  The currently-edited lot's own boundary is always excluded from its own
-  "other farm lots" context layer, so it's never shown twice.
-
-## Epic 3: ISF Billing (implemented)
-
-**Calculation model.** Real Philippine irrigation associations (per NIA
-policy) typically denominate ISF in cavans of palay per hectare, converted
-to cash at the prevailing government support price, with rates varying by
-system type and season. That level of detail is out of scope for a local
-association platform like BAMBOSA — this implementation uses the
-simplified cash model the capstone paper itself specifies: **a rate in
-pesos per hectare, applied per farm lot, per billing period**, which is
-functionally the same calculation NIA uses after their in-kind rate has
-already been converted to cash.
-
-- **Billing periods** (`billing_periods` table) represent a cropping season
-  or billing cycle. An officer opens one with a name, a ₱/hectare rate, and
-  a date range (`officer/billing_periods.php`). Rates are stored per period
-  rather than as one global setting, since real ISF rates commonly change
-  season to season.
-- **Generating bills** (`officer/billing_period_view.php` →
-  "Generate / Refresh Bills") creates one bill per farm lot **that is inside
-  a sector** (`farm_lots.sector_id IS NOT NULL`): `amount_due = land_area_ha ×
-  rate_per_ha`. Lots that aren't assigned to any sector are **not billed**
-  — the page shows how many are being skipped. Both values are **snapshotted**
-  onto the bill at generation time, so correcting a farm lot's area later
-  doesn't silently rewrite historical bills. Re-running generation for the
-  same period updates `amount_due` for any lot whose area changed, but
-  never touches `amount_paid` — recorded payments are never lost by
-  regenerating. Regenerating also cleans up after sector changes: a bill in
-  this period for a lot that is no longer in a sector is removed if nothing
-  has been paid on it; if payments exist it is **kept** and flagged for
-  review (a financial record is never deleted silently). Closed periods are
-  never changed.
-- **Recording a payment keeps your place:** the **Record Payment** link on
-  `officer/billing_period_view.php` carries the current status filter,
-  search term **and page number** (`?id=…&status=…&q=…&page=…&pay=…`), so
-  the bill's row is still on screen and its form opens (before, a bill on
-  page 2+ was hidden because the link dropped `page`). The link ends in
-  `#payment-form-<bill_id>` so the browser scrolls straight to the form
-  (kept clear of the mobile top bar), and the amount field is focused. The
-  form posts back to that same URL, so after **Save Payment** the officer
-  returns to the same page of the same filtered list, and validation errors
-  appear inside the form with the typed values kept.
-- **Payments** (`isf_payments` table) are logged individually against a
-  bill rather than just overwriting a running total, so there's a full
-  audit trail (date, amount, who recorded it, optional notes). A bill's
-  `status` (`unpaid` / `partial` / `paid`) is derived automatically from
-  `amount_paid` vs `amount_due` every time a payment is recorded.
-  Overpayment is rejected server-side (`record_payment()` in
-  `includes/billing.php`) since there's no credit/refund concept in this
-  model.
-- **Officers** manage periods, generate/refresh bills, filter bills by
-  status, and record payments inline per bill.
-- **Members** see all their bills across every period, their current
-  outstanding balance, and can expand any bill to see its payment history
-  (`member/billing.php`). Members cannot record payments themselves —
-  payments are recorded by officers once received, consistent with how a
-  real association handles cash collection.
-- Closing a period (`status = 'closed'`) blocks further bill generation for
-  it, for when an officer wants to lock in a season's billing as final.
-- Deleting a billing period cascades to permanently delete every bill and
-  payment recorded under it — the delete button warns about this
-  explicitly before submitting, since it destroys financial records.
-- See **"Running the migration"** under Setup above for how to add these
-  tables to a database that already existed before this feature was built.
-
-## Next steps (core objectives from Chapter 1)
-
-- [x] Member & Farm Management module (Epic 2)
-- [x] Sector Management — full CRUD with usage counts before delete
-- [x] Machinery Reservation System (simplified — overlap flagged to member and officer, not auto-blocked)
-- [x] Digital Rotation Scheduling — basic CRUD + sector-filtered viewer (simplified — overlap flagged, not auto-blocked)
-- [x] Responsive UI — mobile slide-in sidebar drawer, scrollable tables, responsive forms/nav
-- [x] Farm Map view — Leaflet-based web equivalent of the paper's QGIS mapping
-- [x] Sector Boundaries & Auto-Assignment — draw sector polygons, point-in-polygon farm lot matching, with confirm-before-overwrite and overlap warnings
-- [x] ISF Billing (Epic 3) — billing periods with configurable ₱/ha rate, bill generation, partial-payment tracking with audit trail
-
-All four specific objectives from Chapter 1 are now implemented, along
-with sector management, boundary-based auto-assignment, and the
-responsive UI work that came up along the way. Possible follow-ups beyond
-the original scope, if useful later:
-- [x] Conflict detection for overlapping machinery reservations / rotation schedules — both list pages now show a "⚠ Overlap" badge next to any entry that overlaps another pending/approved reservation (same machine) or another schedule (same sector); saving a conflicting schedule also shows a warning. This is flag-only, not a hard block, since the officer still makes the final call — same philosophy as the original member-side reservation warning.
-- Printable/PDF bill or receipt generation
-- Importing a real QGIS-exported boundary dataset (GeoJSON/shapefile) to replace or refine the manually-drawn polygons
-- [x] SMTP email configuration — implemented; see "Outgoing Email (SMTP / Forgot Password / Activation Notice)" below for the full writeup. PHPMailer 6.12.0's core files are already vendored in under `vendor/phpmailer/phpmailer/src/`, so the only remaining step is filling in real provider credentials in `config/smtp.php` and setting `SMTP_ENABLED = true`.
-- [x] Store farm lot boundaries as GeoJSON polygons instead of (or alongside) a single lat/lon point — implemented; see "Farm Lot Polygons" above for the full writeup. `farm_lots.latitude`/`longitude` are kept and now recomputed as the drawn polygon's centroid whenever one is saved, so nothing else needed to change to keep working.
-
-## Outgoing Email (SMTP / Forgot Password / Activation Notice)
-
-Two features that previously had no email step at all now send real
-email, via **PHPMailer 6.x (core files only)** over plain SMTP:
-
-- **Forgot password** — `forgot_password.php` takes an email address and
-  (if it matches a real, non-deactivated account) emails a time-limited,
-  single-use reset link. `reset_password.php` is where that link lands,
-  and lets the person choose a new password.
-- **Account activation notice** — the moment an officer flips a member's
-  status from `pending` to `active` (`officer/update_status.php`), the
-  member gets an automatic "your account is now active" email. It only
-  fires on that specific transition — re-saving an already-active member,
-  or any other status change, doesn't re-send it.
-
-### PHPMailer is already vendored in
-
-This project deliberately has **no Composer dependency** anywhere (it's
-plain PHP throughout), so PHPMailer's three core files are vendored
-directly into the codebase rather than pulled in via a package manager:
-
-```
-vendor/phpmailer/phpmailer/src/Exception.php
-vendor/phpmailer/phpmailer/src/PHPMailer.php
-vendor/phpmailer/phpmailer/src/SMTP.php
+```php
+// Good                                              // Bad
+<a href="<?= base_url('officer/reports.php') ?>">    <a href="/officer/reports.php">
+header('Location: ' . base_url('officer/dashboard.php'));   header('Location: /officer/dashboard.php');
 ```
 
-This is PHPMailer **6.12.0**, official unmodified source, core files
-only — no OAuth.php, POP3.php, DSNConfigurator.php, or the language
-folder, since BAMBOSA only ever does plain SMTP with a username/password.
-See `vendor/phpmailer/phpmailer/src/VERSION.txt` for exactly what's
-included and how to upgrade to a newer 6.x release later if needed. The
-`vendor/phpmailer/phpmailer/src/...` path deliberately mirrors what
-Composer itself would generate, so switching to Composer later (if this
-project ever adopts it) wouldn't require changing anything in
-`includes/mailer.php`.
+Every page starts with `require_once` of `includes/session.php` and
+`includes/auth.php` (adjust the relative path for pages in `admin/`,
+`officer/` or `member/`); `base_path_utils.php` is pulled in by both.
 
-There's nothing to install — the only remaining step is filling in real
-credentials in `config/smtp.php` and setting `SMTP_ENABLED = true`, per
-the "Configuration" section below.
+The detection strips exactly one trailing `admin`, `officer` or `member`
+folder. **Adding another role folder means adding it to the
+`(admin|officer|member)` regex in `base_path_utils.php`**, or every link,
+asset URL and redirect on its pages breaks. Pages two folders deep would
+need an extra segment stripped as well.
 
-### Configuration — `config/smtp.php`
+### Search & pagination
 
-A new file alongside `config/database.php`, protected by the same
-`config/.htaccess` (`Require all denied`) so it can never be fetched
-directly over HTTP. Set `SMTP_ENABLED = true` and fill in
-`SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_ENCRYPTION`
-plus `SMTP_FROM_EMAIL`/`SMTP_FROM_NAME` — the file has worked examples
-for Gmail (App Password), Outlook/Microsoft 365, and a typical
-cPanel/shared-hosting mailbox in its comments.
+Every list page — officer Members, Sectors, Machinery, Reservations,
+Schedules, Billing Periods and a period's Bills; admin User Management and
+User Login Logs; member Reservation History — has a search box and
+pagination.
 
-### Graceful degradation — nothing breaks if email isn't set up
+- **Search** is a `?q=` GET parameter matched server-side with a
+  case-insensitive `LIKE '%term%'` on the relevant text columns, and it
+  combines with any status/role filter tab.
+- **Pagination** shows **15 rows per page** (`PAGINATION_PER_PAGE` in
+  `includes/pagination.php`) with "Showing X–Y of Z" and prev/next/page
+  links, hidden when everything fits on one page.
+- **Helpers** in `includes/pagination.php`: `get_search_term()`,
+  `get_current_page()`, `build_pagination()`, `render_search_box()`,
+  `render_pagination_controls()` (the last two accept a parameter-name
+  override so one page can host two independent tables).
+- Each "get all X" data function takes optional `$search`, `$limit` and
+  `$offset`, paired with a `count_*()` function; passing `null` returns every
+  row, so callers that need an unpaginated list keep working.
+- All search and `LIMIT/OFFSET` values are bound as prepared-statement
+  parameters. The only dynamic SQL fragments are hardcoded strings chosen by
+  server-side logic.
+- Search boxes are plain GET forms, which drop the action URL's own query
+  string on submit, so anything that must survive a search (a filter, a
+  billing period's `?id=`) is passed through `render_search_box()`'s
+  `$preserveParams`.
 
-Both features work correctly with email fully switched off
-(`SMTP_ENABLED = false`, the default until you configure it) or
-misconfigured (e.g. wrong credentials, unreachable host, or — if the
-`vendor/phpmailer` folder is ever deleted or excluded from a deploy — the
-PHPMailer files missing entirely):
+### Responsive UI
 
-- **Forgot password** shows the exact same "if that email is registered,
-  a reset link has been sent" confirmation message regardless of whether
-  the email actually went out, whether the address exists in the system
-  at all, or whether SMTP is configured. This isn't a bug — see
-  `includes/password_reset.php`'s `request_password_reset()` — it's a
-  deliberate anti-enumeration measure: a forgot-password form that
-  visibly reacts differently to "that email exists" vs. "it doesn't"
-  hands an attacker a way to fish for valid member email addresses.
-- **Account activation** always changes the member's status in the
-  database and lets them log in immediately — whether or not the
-  notification email actually sent is completely irrelevant to that.
-- Every failure (missing PHPMailer files, unreachable host, rejected
-  credentials, invalid recipient) is caught inside `send_email()` in
-  `includes/mailer.php` and logged via `error_log()` with the specific
-  reason, but never bubbles up as a visible error, a broken page, or a
-  blocked action. An officer/admin troubleshooting "why didn't the email
-  arrive" checks the PHP error log, not the end user's screen.
+- The three sidebar partials (`admin_`, `officer_`, `member_sidebar.php` in
+  `includes/partials/`) hold the nav links, active-state highlighting and
+  mobile drawer markup in one place per role. Each nav item is an inline
+  Material Design Icons `<svg>` (`fill="white"`, 24×24) followed by a
+  `<span>` label, so icons look the same on every platform.
+- **Desktop (> 880 px):** fixed-width sidebar. **Mobile/tablet (≤ 880 px):**
+  the sidebar becomes a slide-in drawer opened by the hamburger button in a
+  green top bar; the overlay, the ✕ button, or any nav link closes it.
+  Logic is vanilla JS in `assets/js/dashboard.js`.
+- Every `<table class="data-table">` sits in a `.table-scroll` wrapper so
+  wide tables scroll sideways on small screens; forms (`.form-row`), the
+  landing page and the login/signup cards have breakpoints down to ~480 px.
+- **Favicon:** `assets/img/favicon.png` (rice-stalk logo) and
+  `favicon.ico` (16/32/48 px fallback) are linked in the `<head>` of every
+  page — admin, officer, member and the root auth pages — via `base_url()`.
+  (Error pages embed theirs inline; the email template has none, since email
+  clients ignore favicons.) To change it, replace the PNG (square, ≥ 144 px)
+  and regenerate the `.ico`.
 
-### Security notes
+---
 
-- **Reset tokens are never stored in plaintext.** `password_resets.token_hash`
-  stores only the SHA-256 hash of a cryptographically random 32-byte
-  token; the raw token exists only in the emailed link and briefly in
-  memory. A database leak alone doesn't hand over usable reset links,
-  same principle as `password_hash()` for actual account passwords.
-- **Tokens are single-use and time-limited** (30 minutes by default,
-  `PASSWORD_RESET_TTL_MINUTES` in `includes/password_reset.php`) — once
-  used, `used_at` is set and the token is permanently dead, so a leaked
-  or reused link can't be replayed. `consume_password_reset()` marks a
-  token used inside the same transaction as the actual password change,
-  closing the race-condition window where two near-simultaneous requests
-  with the same token could otherwise both succeed.
-- **Token comparison uses `hash_equals()`**, not `===`, to avoid a timing
-  attack that could otherwise be used to guess a valid token hash one
-  byte at a time.
-- **CSRF protection** on both the forgot-password and reset-password
-  forms, consistent with every other form in the app.
-- **No forced unencrypted SMTP fallback** — `includes/mailer.php` maps
-  `config/smtp.php`'s `SMTP_ENCRYPTION` setting to either STARTTLS or
-  implicit TLS explicitly; there's no code path that silently sends
-  credentials over an unencrypted connection if the setting is
-  missing/invalid.
-- New `sql/migrations/005_password_resets.sql` for an existing database
-  (already included in `sql/bambosa_db.sql` for a fresh install).
+## 7. Security summary
 
+- **Passwords:** `password_hash()` / `password_verify()`; minimum 8
+  characters for new passwords; the current password is required to change
+  your own password or email.
+- **Sessions:** `httponly`, `samesite=Lax`, scoped cookie path; the session
+  is re-validated against the database every request, so deleting,
+  deactivating or re-roling an account applies immediately.
+- **Authorisation:** every protected page enforces login and role
+  (`require_role()`, or the equivalent check in the AJAX endpoints). Officers
+  cannot change admin or officer accounts. Admins cannot delete, demote or
+  deactivate themselves, and the last active admin is protected.
+- **CSRF:** tokens on login, signup, forgot/reset password, profile,
+  account-management and billing forms.
+- **SQL injection:** prepared statements throughout; search terms and
+  `LIMIT/OFFSET` are bound parameters.
+- **XSS:** output is HTML-escaped; external API data (IP lookup) is escaped
+  and inserted into the map popup with `textContent`.
+- **Protected folders:** `config/`, `includes/`, `vendor/` and `sql/` are
+  `Require all denied`, with matching behaviour under `serve.bat`.
+- **Account enumeration:** the forgot-password response never reveals
+  whether an address exists.
+- **Reset tokens:** hashed at rest, single-use, 30-minute expiry,
+  `hash_equals()` comparison.
+- **Email failures** are logged, never shown to users.
+- **Third-party calls:** the only outbound request carrying user-related
+  data is the admin IP lookup (the IP address only, over HTTP on ip-api's
+  free tier); map tiles and Leaflet come from public CDNs.
+
+---
+
+## 8. Developer notes
+
+**Adding a page**
+1. Start with `require_once` of `includes/session.php`,
+   `includes/auth.php` and (if you touch the database)
+   `config/database.php`.
+2. Call `require_role('admin'|'officer'|'member')`.
+3. Build every URL with `base_url()`.
+4. Protect POST forms with `csrf_token()` / `csrf_verify()`; use prepared
+   statements; escape output with `htmlspecialchars()`.
+5. Set `$activeNav`, open `<div class="dash-shell">`, include the role's
+   sidebar partial, wrap content in `<main class="dash-main">`, and load
+   `assets/js/dashboard.js` before `</body>`. Wrap tables in `.table-scroll`.
+6. Add the link to the sidebar partial (icon `<svg>` + `<span>`).
+7. For list pages, use the helpers in `includes/pagination.php`.
+8. Update this README and, if data or flows changed, the diagrams.
+
+**Schema changes:** add `sql/migrations/NNN_description.sql` (idempotent)
+and fold the same change into `sql/bambosa_db.sql`.
+
+**PHP compatibility:** keep to PHP 7.4 syntax (see
+[Requirements](#requirements)).
+
+---
+
+## 9. Database & diagrams
+
+Thirteen tables, all in `sql/bambosa_db.sql`:
+
+| Table | Purpose |
+|---|---|
+| `users` | All accounts — role `admin` / `officer` / `member`, status `active` / `inactive` / `pending` |
+| `login_logs` | One row per successful login (user, time, IP) |
+| `password_resets` | Hashed, single-use password-reset tokens |
+| `sectors` | Irrigation sectors, with optional `boundary_geojson` |
+| `farm_lots` | Members' parcels: sector, area, `boundary_geojson`, derived `latitude`/`longitude` |
+| `sector_auto_assignments` | Audit log of automatic sector assignments |
+| `machinery_groups` | Pools of interchangeable equipment |
+| `machinery` | Individual machines (optional group, availability, `damage_level`) |
+| `machinery_reservations` | Reservation requests, status flow and rejection remarks |
+| `rotation_schedules` | Water-release windows per sector (`group_id` ties shared entries together) |
+| `billing_periods` | Billing seasons with a ₱/ha rate |
+| `isf_bills` | One bill per lot per period (area and rate snapshotted) |
+| `isf_payments` | Individual payments against a bill |
+
+**Deleting a user** cascades to their farm lots, reservations, ISF bills and
+payments, login logs and reset tokens. Records a user merely created
+(schedules, billing periods, recorded payments, auto-assignment log
+entries) are kept with the author set to `NULL`.
+
+Mermaid sources live in `docs/diagrams/` — plain text so they can be
+updated alongside the code (see its `README.md` for viewing/editing):
+
+- `erd.mermaid` — Entity-Relationship Diagram of the schema above.
+- `dfd_level0.mermaid` — context diagram: Member, Officer, Admin, the SMTP
+  server, OpenStreetMap tiles and ip-api.com around the whole system.
+- `dfd_level1.mermaid` — the 8 major processes (auth, farm lots, sectors,
+  machinery, scheduling, billing, dashboard/calendar, and admin account
+  administration with login logs and IP lookup) mapped to their tables.
+
+---
+
+## 10. Project status
+
+All of the capstone's specific objectives are implemented (simplified
+where noted):
+
+| Module | Status |
+|---|---|
+| Authentication, roles (admin / officer / member), self-service profiles | ✅ |
+| Member & farm management | ✅ |
+| Sector management, boundaries & auto-assignment | ✅ |
+| Farm lot polygons and farm maps (web equivalent of QGIS mapping) | ✅ |
+| Rotation scheduling (flag-only overlap detection, multi-sector apply) | ✅ |
+| Machinery reservations (pools, stock-aware approval, condition tracking) | ✅ |
+| ISF billing (periods, bills for lots inside sectors, payments with audit trail) | ✅ |
+| Dashboard calendar | ✅ |
+| Admin: user management, login logs, IP lookup, system clock | ✅ |
+| Responsive UI, custom error pages, timezone sync, optional SMTP email | ✅ |
+
+Possible follow-ups beyond the original scope: printable/PDF bills and
+receipts; importing a real QGIS-exported boundary dataset (GeoJSON or
+shapefile-derived) to refine the drawn polygons; an activation email when an
+admin (not just an officer) activates a member; recording failed login
+attempts.
