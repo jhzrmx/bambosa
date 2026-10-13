@@ -161,6 +161,7 @@ $pageBaseUrl = base_url('officer/schedules.php');
         <thead>
           <tr>
             <th>Sector</th>
+            <th>Status</th>
             <th>Start</th>
             <th>End</th>
             <th>Notes</th>
@@ -169,7 +170,7 @@ $pageBaseUrl = base_url('officer/schedules.php');
         </thead>
         <tbody>
           <?php if (empty($schedules)): ?>
-            <tr><td colspan="5" class="empty-row">No rotation schedules found<?= $searchTerm ? ' for "' . htmlspecialchars($searchTerm) . '"' : ' yet' ?>.</td></tr>
+            <tr><td colspan="6" class="empty-row">No rotation schedules found<?= $searchTerm ? ' for "' . htmlspecialchars($searchTerm) . '"' : ' yet' ?>.</td></tr>
           <?php else: foreach ($schedules as $s): ?>
             <?php $hasConflict = has_overlapping_schedule($pdo, (int) $s['sector_id'], $s['start_time'], $s['end_time'], (int) $s['schedule_id']); ?>
             <tr>
@@ -181,6 +182,14 @@ $pageBaseUrl = base_url('officer/schedules.php');
                 <?php if (!empty($s['group_id'])): ?>
                   <span class="status-badge status-active" title="This schedule is shared with one or more other sectors">Shared</span>
                 <?php endif; ?>
+              </td>
+              <td>
+                <?php
+                  $timeStatus = get_schedule_time_status($s['start_time'], $s['end_time']);
+                  $statusLabels = ['ongoing' => 'Happening Now', 'upcoming' => 'Upcoming', 'finished' => 'Finished'];
+                  $statusClasses = ['ongoing' => 'status-active', 'upcoming' => 'status-upcoming', 'finished' => 'status-finished'];
+                ?>
+                <span class="status-badge <?= $statusClasses[$timeStatus] ?>"><?= $statusLabels[$timeStatus] ?></span>
               </td>
               <td><?= htmlspecialchars(date('M j, Y g:i A', strtotime($s['start_time']))) ?></td>
               <td><?= htmlspecialchars(date('M j, Y g:i A', strtotime($s['end_time']))) ?></td>

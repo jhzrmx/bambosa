@@ -1914,3 +1914,7 @@ footer.site-footer {
 
 /* Keep an anchor-scrolled form clear of the sticky mobile top bar. */
 .payment-form { scroll-margin-top: 5rem; }
+
+/* Rotation schedule timing status (officer/schedules.php) — "Happening Now" reuses .status-active */
+.status-upcoming { background: #e3f1fa; color: #1d6f96; }
+.status-finished { background: #eef1ef; color: #647a6d; }

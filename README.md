@@ -445,6 +445,13 @@ an imported QGIS dataset could be layered in later.
   (`officer/schedules.php`); members see the upcoming schedule for their
   own sector(s) plus every sector's upcoming releases
   (`member/schedule.php`).
+- **Status column:** each row shows where the schedule stands right now,
+  comparing the full start and end **date and time** with the current time:
+  **Happening Now** (now is between start and end, inclusive),
+  **Upcoming** (starts later) or **Finished** (already ended)
+  (`get_schedule_time_status()` in `includes/schedules.php`, using the
+  configured application timezone — see [Timezone](#timezone)). The status
+  is worked out each time the page loads; nothing is stored.
 - **Overlap flagging:** `has_overlapping_schedule()` marks any entry that
   overlaps another in the same sector with a "⚠ Overlap" badge, and shows a
   warning after saving one. It is informational only — an intentional
@@ -495,6 +502,10 @@ an imported QGIS dataset could be layered in later.
   and `get_available_machinery_in_group()` (pools). At request time this is
   a soft heads-up — the request still goes in as pending; at approval time
   of a fully-booked pool it is a hard block.
+- **Groups list:** `officer/machinery_groups.php` shows, per group, the
+  total number of **Machines** and how many are currently **Available
+  Machines** (marked available; zero is highlighted). The machinery list's
+  column is headed **Availability**.
 - **Navigation:** the officer sidebar has **Machinery Inventory** and a
   separate **Reservation Requests** item with a red badge for pending
   requests (hidden at zero, "99+" cap), computed inside

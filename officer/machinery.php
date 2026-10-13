@@ -103,7 +103,7 @@ $pageBaseUrl = base_url('officer/machinery.php');
             <th>Name</th>
             <th>Type/Group</th>
             <th>Description</th>
-            <th>Available?</th>
+            <th>Availability</th>
             <th>Condition</th>
             <th>Actions</th>
           </tr>

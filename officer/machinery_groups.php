@@ -55,6 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
 $groups = get_all_machinery_groups($pdo);
 foreach ($groups as &$g) {
     $g['machine_count'] = count_machinery_in_group($pdo, (int) $g['group_id']);
+    $g['available_count'] = count_available_machinery_in_group($pdo, (int) $g['group_id']);
 }
 unset($g);
 
@@ -105,17 +106,24 @@ $activeNav = 'machinery';
             <th>Group Name</th>
             <th>Description</th>
             <th>Machines</th>
+            <th>Available Machines</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           <?php if (empty($groups)): ?>
-            <tr><td colspan="4" class="empty-row">No machinery groups yet.</td></tr>
+            <tr><td colspan="5" class="empty-row">No machinery groups yet.</td></tr>
           <?php else: foreach ($groups as $g): ?>
             <tr>
               <td><?= htmlspecialchars($g['group_name']) ?></td>
               <td><?= htmlspecialchars($g['description'] ?? '—') ?></td>
               <td><?= (int) $g['machine_count'] ?></td>
+              <td>
+                <span class="status-badge <?= (int) $g['available_count'] > 0 ? 'status-active' : 'status-inactive' ?>"
+                      title="Machines in this group currently marked available">
+                  <?= (int) $g['available_count'] ?>
+                </span>
+              </td>
               <td class="actions-cell">
                 <a href="<?= base_url('officer/machinery_groups.php?edit=' . (int) $g['group_id']) ?>" class="link-btn">Edit</a>
                 <?php

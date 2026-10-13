@@ -105,6 +105,14 @@ function count_machinery_in_group(PDO $pdo, int $groupId): int
     return (int) $stmt->fetch()['cnt'];
 }
 
+/** How many machines in a group are currently marked available (is_available = 1). */
+function count_available_machinery_in_group(PDO $pdo, int $groupId): int
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) AS cnt FROM machinery WHERE group_id = :id AND is_available = 1');
+    $stmt->execute(['id' => $groupId]);
+    return (int) $stmt->fetch()['cnt'];
+}
+
 /**
  * All machinery groups that currently have at least one available
  * (is_available = 1) unit — used to populate the member reservation

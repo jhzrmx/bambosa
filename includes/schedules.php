@@ -372,3 +372,28 @@ function has_overlapping_schedule(PDO $pdo, int $sectorId, string $startTime, st
     $stmt->execute($params);
     return (int) $stmt->fetch()['cnt'] > 0;
 }
+
+/**
+ * Where a schedule stands relative to RIGHT NOW, comparing the full
+ * date and time:
+ *   'finished'  — its end date/time has already passed
+ *   'upcoming'  — its start date/time is still ahead
+ *   'ongoing'   — now falls within start..end (inclusive)
+ * "Now" is read in the application timezone (see config/timezone.php), the
+ * same clock MySQL's DATETIME values are interpreted in once it is set.
+ * $now is injectable ('Y-m-d H:i:s') for testing; defaults to the current time.
+ */
+function get_schedule_time_status(string $startTime, string $endTime, ?string $now = null): string
+{
+    $now   = $now ?? date('Y-m-d H:i:s');
+    $start = date('Y-m-d H:i:s', strtotime($startTime));
+    $end   = date('Y-m-d H:i:s', strtotime($endTime));
+
+    if ($end < $now) {
+        return 'finished';
+    }
+    if ($start > $now) {
+        return 'upcoming';
+    }
+    return 'ongoing';
+}
