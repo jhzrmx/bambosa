@@ -56,8 +56,8 @@ $activeNav = 'system_clock';
         </div>
       <?php endif; ?>
       <p class="muted-note">
-        No timezone is configured, so PHP and MySQL are using whatever the server gave them.
-        Set <code>APP_TIMEZONE</code> in <code>config/timezone.php</code> to keep them in sync.
+        <code>APP_TIMEZONE</code> is empty, so timezone syncing is switched off and PHP and MySQL are using whatever the server gave them.
+        Set it in <code>config/timezone.php</code> (e.g. <code>'Asia/Manila'</code>) to keep them in sync.
       </p>
     <?php elseif (!$clock['in_sync']): ?>
       <div class="alert alert-error" style="margin-top:0.8rem;">

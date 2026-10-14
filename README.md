@@ -73,8 +73,9 @@ instead (e.g. `str_has()` in `includes/pagination.php`).
    accounts — nothing in `sql/migrations/` needs to be run on a fresh install.
 4. Check `config/database.php` (XAMPP's default `root` with an empty
    password is already set).
-5. *Recommended:* set `APP_TIMEZONE` in `config/timezone.php`
-   (e.g. `'Asia/Manila'`) — see [Timezone](#timezone).
+5. The timezone is already set to **Asia/Manila** (Philippine Standard
+   Time) in `config/timezone.php`; change it only for a deployment outside
+   the Philippines — see [Timezone](#timezone).
 6. Open `http://localhost/bambosa/` and log in with a default account
    (below). **Change both default passwords straight away.**
 
@@ -131,7 +132,7 @@ All live in `config/`, which is blocked from direct web access by
 | File | Purpose | Default |
 |---|---|---|
 | `database.php` | PDO connection (host, database, credentials) | XAMPP defaults |
-| `timezone.php` | `APP_TIMEZONE` — one timezone for PHP and MySQL | empty = not configured, nothing is changed |
+| `timezone.php` | `APP_TIMEZONE` — one timezone for PHP and MySQL | `'Asia/Manila'` (empty string = feature off, nothing is changed) |
 | `smtp.php` | SMTP settings for outgoing email | `SMTP_ENABLED = false` |
 
 ---
@@ -585,23 +586,28 @@ with PHP's clock but checked against MySQL's `NOW()`, and schedule times
 are compared with `NOW()`. `config/timezone.php` fixes that with one line:
 
 ```php
-const APP_TIMEZONE = '';   // '' = not configured; e.g. 'Asia/Manila'
+const APP_TIMEZONE = 'Asia/Manila';   // Philippine Standard Time (UTC+08:00, no DST)
 ```
 
-- **Not configured → nothing changes.** An empty value, a missing file, or
-  an invalid identifier (logged to the PHP error log) leaves both PHP and
-  MySQL exactly as the server set them. A typo can never half-apply.
-- **Configured → both are synced.** `includes/session.php` (first on every
+It ships set to **Asia/Manila**, since Barangay Bikal uses Philippine
+Standard Time, so a fresh install needs no timezone setup.
+
+- **Synced on every request.** `includes/session.php` (first on every
   page) calls `date_default_timezone_set()`, and `config/database.php` runs
   `SET time_zone` on each connection (`includes/timezone.php`). If MySQL has
-  no timezone tables (common on a fresh XAMPP), the equivalent offset such
-  as `+08:00` is used automatically.
+  no timezone tables (common on a fresh XAMPP), the equivalent offset
+  (`+08:00` for Manila) is used automatically.
+- **Switching it off.** Set `APP_TIMEZONE = ''` and nothing is changed —
+  PHP and MySQL keep whatever the server gave them. A missing file or an
+  invalid identifier (logged to the PHP error log) behaves the same way, so
+  a typo can never half-apply.
 - **Verify it** on the admin **System Clock** page.
-- **Existing data:** `DATETIME` columns (e.g. schedule start/end) keep the
-  clock time as entered. `TIMESTAMP` columns (`created_at`, `login_time`, …)
-  are stored as UTC and displayed in the connection's zone, so setting or
-  changing the timezone changes how existing values display. Choose it once,
-  early.
+- **Existing data (upgrades):** `DATETIME` columns (e.g. schedule start/end)
+  keep the clock time as entered. `TIMESTAMP` columns (`created_at`,
+  `login_time`, …) are stored as UTC and displayed in the connection's zone,
+  so on an install that previously ran with a different timezone, existing
+  values will display shifted by the difference. Choose the zone once and
+  keep it.
 
 ### Outgoing email
 
