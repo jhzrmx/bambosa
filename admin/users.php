@@ -60,6 +60,8 @@ $pageUrlWithSearch = $pageBaseUrl . ($searchTerm ? (str_has($pageBaseUrl, '?') ?
       <div class="alert alert-success">Account created.</div>
     <?php elseif ($flash === 'updated'): ?>
       <div class="alert alert-success">Account updated.</div>
+    <?php elseif ($flash === 'updated_notified'): ?>
+      <div class="alert alert-success">Account updated and activated. An email was sent to let them know.</div>
     <?php elseif ($flash === 'deleted'): ?>
       <div class="alert alert-success">Account deleted.</div>
     <?php endif; ?>

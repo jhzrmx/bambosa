@@ -67,3 +67,37 @@ function base_url(string $path = ''): string
     $path = ltrim($path, '/');
     return ($path === '') ? ($base !== '' ? $base . '/' : '/') : $base . '/' . $path;
 }
+
+/**
+ * Builds a FULL URL (scheme + host + base path) for places where a
+ * root-relative path is useless — chiefly links inside emails, which have no
+ * page to resolve "/bambosa/login.php" against.
+ *
+ * The site origin comes from APP_PUBLIC_ORIGIN in config/smtp.php, e.g.
+ * 'https://irrigation.example.com'. If that is empty it is detected from the
+ * current request (https when the request is HTTPS, plus the Host header,
+ * accepted only if it looks like a plain hostname[:port]). Set
+ * APP_PUBLIC_ORIGIN on a public server: the Host header is supplied by the
+ * client, and emailed links (e.g. password reset) should never depend on it.
+ *
+ * Usage: absolute_url('login.php') → 'http://localhost/bambosa/login.php'
+ */
+function absolute_url(string $path = ''): string
+{
+    if (!defined('APP_PUBLIC_ORIGIN') && is_file(__DIR__ . '/../config/smtp.php')) {
+        require_once __DIR__ . '/../config/smtp.php';
+    }
+
+    $origin = defined('APP_PUBLIC_ORIGIN') ? rtrim(trim((string) APP_PUBLIC_ORIGIN), '/') : '';
+
+    if ($origin === '') {
+        $https  = !empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off';
+        $host   = (string) ($_SERVER['HTTP_HOST'] ?? '');
+        if (!preg_match('/^[A-Za-z0-9.\-]+(:\d{1,5})?$/', $host)) {
+            $host = (string) ($_SERVER['SERVER_NAME'] ?? 'localhost');
+        }
+        $origin = ($https ? 'https://' : 'http://') . $host;
+    }
+
+    return $origin . base_url($path);
+}

@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/members.php';
 require_once __DIR__ . '/../includes/admin_users.php';
+require_once __DIR__ . '/../includes/mailer.php';
 
 require_role('admin');
 
@@ -95,7 +96,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo, (int) $editing['user_id'], $form['full_name'], $form['email'],
                     $form['contact_number'], $form['role'], $form['status'], $password !== '' ? $password : null
                 );
-                header('Location: ' . base_url('admin/users.php?flash=updated'));
+
+                // Same rule as the officer's approval: only a genuine
+                // pending -> active change sends the "account is now active"
+                // notice (not every save of an already-active account).
+                // Best-effort: the account is already updated either way.
+                $notified = false;
+                if ($editing['status'] === 'pending' && $form['status'] === 'active') {
+                    $notified = send_account_activation_email(
+                        ['full_name' => $form['full_name'], 'email' => $form['email']],
+                        'an administrator'
+                    );
+                }
+                header('Location: ' . base_url('admin/users.php?flash=' . ($notified ? 'updated_notified' : 'updated')));
             } else {
                 create_user(
                     $pdo, $form['full_name'], $form['email'], $password,
@@ -184,7 +197,7 @@ $pageTitle = $editing ? 'Edit Account' : 'Add New Account';
       </div>
       <p class="muted-note" style="margin-top:0;">
         Admins manage all accounts; officers manage association records; members are farmers.
-        Only <strong>active</strong> accounts can log in. Role changes take effect immediately.
+        Only <strong>active</strong> accounts can log in. Role changes take effect immediately. Changing a <em>pending</em> account to <em>active</em> emails them a notice (when email is set up).
       </p>
 
       <div class="form-row">

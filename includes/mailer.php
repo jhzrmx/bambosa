@@ -165,3 +165,32 @@ function render_email_layout(string $title, string $bodyHtml): string
     </html>
     HTML;
 }
+
+/**
+ * Sends the "your account is now active" notice. Shared by every place that
+ * can activate an account (officer/update_status.php and admin/user_edit.php)
+ * so the wording and link are identical.
+ *
+ * $user needs 'full_name' and 'email'. $approvedBy is the phrase shown in
+ * the message, e.g. 'an association officer' or 'an administrator'.
+ * Returns true if the email was handed to the mail server; false when email
+ * is off/misconfigured or sending failed (send_email() logs the reason).
+ * Callers must treat this as best-effort — the account is already active.
+ */
+function send_account_activation_email(array $user, string $approvedBy = 'an association officer'): bool
+{
+    $bodyHtml = '
+        <p style="margin:0 0 16px; color:#1b2b23; font-size:15px;">Hi ' . htmlspecialchars($user['full_name'], ENT_QUOTES, 'UTF-8') . ',</p>
+        <p style="margin:0 0 16px; color:#1b2b23; font-size:15px;">Good news — your BAMBOSA account has been approved by ' . htmlspecialchars($approvedBy, ENT_QUOTES, 'UTF-8') . '. You can now log in and access your dashboard.</p>
+        <p style="margin:0 0 24px; text-align:center;">
+          <a href="' . htmlspecialchars(absolute_url('login.php'), ENT_QUOTES, 'UTF-8') . '" style="background:#1f7a4d; color:#ffffff; text-decoration:none; padding:12px 28px; border-radius:8px; font-weight:bold; display:inline-block;">Log In</a>
+        </p>
+    ';
+
+    return send_email(
+        $user['email'],
+        $user['full_name'],
+        'Your BAMBOSA account is now active',
+        render_email_layout('Account activated', $bodyHtml)
+    );
+}

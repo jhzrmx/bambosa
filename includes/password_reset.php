@@ -69,7 +69,8 @@ function request_password_reset(PDO $pdo, string $email): void
         'ip'         => $_SERVER['REMOTE_ADDR'] ?? null,
     ]);
 
-    $resetUrl = base_url('reset_password.php') . '?token=' . urlencode($rawToken);
+    // Full URL (not just a path): an email client can't resolve a relative link.
+    $resetUrl = absolute_url('reset_password.php') . '?token=' . urlencode($rawToken);
 
     $bodyHtml = '
         <p style="margin:0 0 16px; color:#1b2b23; font-size:15px;">Hi ' . htmlspecialchars($user['full_name'], ENT_QUOTES, 'UTF-8') . ',</p>

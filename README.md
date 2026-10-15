@@ -133,7 +133,7 @@ All live in `config/`, which is blocked from direct web access by
 |---|---|---|
 | `database.php` | PDO connection (host, database, credentials) | XAMPP defaults |
 | `timezone.php` | `APP_TIMEZONE` — one timezone for PHP and MySQL | `'Asia/Manila'` (empty string = feature off, nothing is changed) |
-| `smtp.php` | SMTP settings for outgoing email | `SMTP_ENABLED = false` |
+| `smtp.php` | SMTP settings for outgoing email, plus `APP_PUBLIC_ORIGIN` (the site address used in emailed links) | `SMTP_ENABLED = false`, origin auto-detected |
 
 ---
 
@@ -268,7 +268,9 @@ records stay with officers).
 - **Add / edit** (`admin/user_edit.php`) — name, email, contact number,
   role, status, and a password (required for a new account; leave blank
   when editing to keep it). Email must be valid and unique; passwords need
-  at least 8 characters.
+  at least 8 characters. Changing a `pending` account to `active` also
+  emails the person an activation notice (see
+  [Outgoing email](#outgoing-email)).
 - **Delete** (`admin/user_delete.php`, POST + CSRF) — permanent. Database
   cascades also remove a member's farm lots, reservations, ISF bills and
   payments, login logs and reset tokens; records an officer merely
@@ -618,9 +620,18 @@ vendored in `vendor/phpmailer/phpmailer/src/`; no Composer, no OAuth/POP3):
   single-use reset link to a real, non-deactivated account;
   `reset_password.php` is where it lands.
 - **Account-activation notice** — sent when an **officer** approves a
-  `pending` member in Member Management (`officer/update_status.php`). It
-  fires only on that `pending → active` change. *(Changing a member's
-  status through the admin's User Management does not send it.)*
+  `pending` member in Member Management (`officer/update_status.php`) **or an
+  admin** changes a `pending` account to `active` in User Management
+  (`admin/user_edit.php`). Both use the same message
+  (`send_account_activation_email()` in `includes/mailer.php`; the wording
+  says "approved by an association officer" or "an administrator"). It fires
+  only on that `pending → active` change — re-saving an already-active
+  account, or creating an account that is already active, sends nothing. When
+  an admin's change did send an email, the confirmation reads "Account
+  updated and activated. An email was sent…"; if email is off or fails, they
+  just see "Account updated."
+
+**Links in emails.** Email buttons use full URLs (`absolute_url()` in `includes/base_path_utils.php`) because an inbox has no page to resolve a relative link like `/bambosa/login.php` against. The site's address comes from `APP_PUBLIC_ORIGIN` in `config/smtp.php` (e.g. `'https://irrigation.example.com'` — the install folder is added automatically). Left empty, it is detected from the request, which is fine for localhost; **on a public server set it**, because the detected value comes from the browser's `Host` header, which a malicious visitor could fake to make a reset link point at their own site.
 
 **Setup:** fill in `config/smtp.php` (host, port, username, password,
 encryption, from-address — it includes worked examples for Gmail with an App
@@ -787,7 +798,9 @@ pagination.
   whether an address exists.
 - **Reset tokens:** hashed at rest, single-use, 30-minute expiry,
   `hash_equals()` comparison.
-- **Email failures** are logged, never shown to users.
+- **Email failures** are logged, never shown to users. Emailed links are
+  built from the configured `APP_PUBLIC_ORIGIN`, not a client-supplied header,
+  once you set it on a public server.
 - **Third-party calls:** the only outbound request carrying user-related
   data is the admin IP lookup (the IP address only, over HTTP on ip-api's
   free tier); map tiles and Leaflet come from public CDNs.
@@ -876,6 +889,5 @@ where noted):
 
 Possible follow-ups beyond the original scope: printable/PDF bills and
 receipts; importing a real QGIS-exported boundary dataset (GeoJSON or
-shapefile-derived) to refine the drawn polygons; an activation email when an
-admin (not just an officer) activates a member; recording failed login
+shapefile-derived) to refine the drawn polygons; recording failed login
 attempts.

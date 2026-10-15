@@ -5,8 +5,9 @@
  *
  * Powers two features (see includes/mailer.php):
  *   - Forgot password (forgot_password.php / reset_password.php)
- *   - Account activation notification (sent from officer/update_status.php
- *     the moment an officer moves a member from "pending" to "active")
+ *   - Account activation notification (sent the moment an officer — from
+ *     officer/update_status.php — or an admin — from admin/user_edit.php —
+ *     moves an account from "pending" to "active")
  *
  * HOW TO CONFIGURE:
  * 1. Set SMTP_ENABLED to true.
@@ -91,3 +92,14 @@ const SMTP_FROM_NAME  = 'BAMBOSA Irrigation Association';
 // Connection timeout in seconds for the SMTP handshake — keeps a
 // misconfigured or unreachable host from hanging a page load for minutes.
 const SMTP_TIMEOUT = 10;
+
+// The public address of this site, used to build the links inside emails
+// (reset-password and "Log In" buttons), which must be FULL URLs because
+// an email has no page to resolve a relative link against.
+//   e.g. 'https://irrigation.example.com'   (no trailing slash, no folder —
+//        the install folder such as /bambosa is added automatically)
+// Leave '' to detect it from the request that triggers the email (fine for
+// localhost/testing). On a public server, SET IT: the detected value comes
+// from the browser's Host header, which a malicious visitor could fake to
+// make emailed links point at their own site.
+const APP_PUBLIC_ORIGIN = '';
