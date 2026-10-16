@@ -87,6 +87,8 @@ flowchart TB
     P8 <--> D1
     P8 -- "cascade delete of<br/>logs &amp; reset tokens" --> D2
     D2 -- "login history<br/>(who, when, IP)" --> P8
+    P8 -- "activation email<br/>(pending → active)" --> SMTP
+    SMTP -- "send result" --> P8
     P8 -- "IP address from a login log" --> IPAPI
     IPAPI -- "location, ISP &amp; network info" --> P8
     P8 -- "tile requests (IP map)" --> OSM

@@ -107,7 +107,8 @@ php -r "echo password_hash('YourNewPassword123', PASSWORD_DEFAULT);"
 Pull the new code, then in phpMyAdmin import any migration you haven't run
 yet from `sql/migrations/`, **in numeric order**. They are safe to re-run
 (`CREATE TABLE IF NOT EXISTS`, plus existence checks before altering
-tables). None of them touches existing rows.
+tables). They never modify or delete existing rows (`007` only adds the
+default admin account if it isn't there).
 
 | Migration | Adds |
 |---|---|
@@ -158,7 +159,7 @@ bambosa/
 │   ├── dashboard.php          # Account counts + quick actions
 │   ├── profile.php            # Own name / contact / email / password
 │   ├── users.php              # List, filter and search ALL accounts; edit / delete links
-│   ├── user_edit.php          # Add an account / edit any other account
+│   ├── user_edit.php          # Add an account / edit any other account (activating a pending one emails them)
 │   ├── user_delete.php        # POST handler: delete an account
 │   ├── login_logs.php         # User Login Logs (search + pagination)
 │   ├── ip.php                 # IP details: map + location / ISP info for ?address=…
@@ -170,7 +171,7 @@ bambosa/
 │   ├── profile.php            # Own name / contact / email / password
 │   ├── members.php            # List / filter members; approve, deactivate
 │   ├── member_view.php        # One member + their farm lots (CRUD, boundary drawing)
-│   ├── update_status.php      # POST handler: approve / deactivate / reactivate a member
+│   ├── update_status.php      # POST handler: approve / deactivate / reactivate a member (approval emails them)
 │   ├── sectors.php            # Sector CRUD
 │   ├── sector_boundaries.php  # Draw / edit sector boundaries on a map
 │   ├── sector_boundary_save.php     # AJAX: save a boundary (+ optional auto-assignment)
@@ -187,7 +188,7 @@ bambosa/
 ├── member/                    # role = member
 │   ├── index.php              # Directory entry point → dashboard.php
 │   ├── dashboard.php          # Stat cards + calendar
-│   ├── profile.php            # Own details + password; read-only farm lots
+│   ├── profile.php            # Own name / contact / email / password; read-only farm lots
 │   ├── billing.php            # Own ISF bills and payment history
 │   ├── machinery.php          # Request a reservation
 │   ├── machinery_history.php  # Own reservations + equipment condition
@@ -195,7 +196,7 @@ bambosa/
 │   └── map.php                # Own farm lots on a map
 │
 ├── includes/                  # Library code (blocked from direct HTTP access)
-│   ├── base_path_utils.php    # BAMBOSA_BASE_PATH detection + base_url()
+│   ├── base_path_utils.php    # BAMBOSA_BASE_PATH detection; base_url() and absolute_url() (full URLs for emails)
 │   ├── session.php            # Session bootstrap; applies the PHP timezone
 │   ├── auth.php               # Login/role checks, CSRF helpers, session ↔ DB sync
 │   ├── pagination.php        # Shared search + pagination helpers
@@ -210,7 +211,7 @@ bambosa/
 │   ├── schedules.php          # Rotation schedules
 │   ├── billing.php            # Billing periods, bills, payments
 │   ├── calendar_events.php    # Merged schedule + reservation events for the calendar
-│   ├── mailer.php             # PHPMailer wrapper: send_email(), render_email_layout()
+│   ├── mailer.php             # PHPMailer wrapper: send_email(), render_email_layout(), send_account_activation_email()
 │   ├── password_reset.php     # Reset-token generation / verification / consumption
 │   └── partials/              # admin_, officer_ and member_sidebar.php (nav + mobile drawer)
 │
@@ -351,7 +352,7 @@ Every role has a profile page (`admin/`, `officer/` and `member/profile.php`):
 - **Officers** filter members (all / pending / active / inactive), approve
   signups, deactivate or reactivate accounts, and add/edit/delete farm lots
   for any member (`officer/member_view.php`).
-- **Members** update their own name and contact number and see their lots
+- **Members** update their own name, contact number and email, and see their lots
   and total area read-only (`member/profile.php`). Land area and sector are
   officer-managed because they drive billing.
 - All data access goes through `includes/members.php` using prepared
@@ -801,9 +802,10 @@ pagination.
 - **Email failures** are logged, never shown to users. Emailed links are
   built from the configured `APP_PUBLIC_ORIGIN`, not a client-supplied header,
   once you set it on a public server.
-- **Third-party calls:** the only outbound request carrying user-related
-  data is the admin IP lookup (the IP address only, over HTTP on ip-api's
-  free tier); map tiles and Leaflet come from public CDNs.
+- **Data leaving the server:** outgoing email goes to the SMTP server you
+  configure (recipient address and message text); the admin IP lookup sends
+  only the IP address, over HTTP on ip-api's free tier; map tiles and Leaflet
+  come from public CDNs. Nothing else is sent to third parties.
 
 ---
 
