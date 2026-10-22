@@ -119,6 +119,7 @@ default admin account if it isn't there).
 | `005_password_resets.sql` | `password_resets` |
 | `006_machinery_groups.sql` | `machinery_groups`, `machinery.group_id` / `damage_level`, `machinery_reservations.group_id` / `rejection_remark` (and makes its `machinery_id` nullable) |
 | `007_admin_role.sql` | the `admin` value on `users.role` and the default admin account |
+| `008_login_log_status.sql` | `login_logs.status` (default `Success`) / `email_attempted`, and makes `login_logs.user_id` nullable |
 
 Future schema changes follow the same pattern: a new
 `sql/migrations/NNN_description.sql` for existing installs, with the same
@@ -143,7 +144,7 @@ All live in `config/`, which is blocked from direct web access by
 ```
 bambosa/
 ├── index.php                  # Public landing page
-├── login.php                  # Login form + auth logic (records login_logs)
+├── login.php                  # Login form + auth logic (records login_logs, incl. failed attempts)
 ├── signup.php                 # Member signup (role "member", status "pending")
 ├── logout.php                 # Ends the session
 ├── forgot_password.php        # Request a password-reset email
@@ -202,7 +203,7 @@ bambosa/
 │   ├── pagination.php        # Shared search + pagination helpers
 │   ├── members.php            # Users, farm lots, sectors, map queries
 │   ├── admin_users.php        # Account management for admins + safety guards
-│   ├── login_logs.php         # Read-only login_logs queries
+│   ├── login_logs.php         # login_logs queries + record_failed_login()
 │   ├── ip_lookup.php          # ip-api.com lookup (validation, 24 h cache)
 │   ├── timezone.php           # Applies config/timezone.php to PHP + MySQL
 │   ├── sector_boundaries.php  # Boundary storage, point-in-polygon, auto-assignment
@@ -225,7 +226,7 @@ bambosa/
 │                              #   sector-boundaries.js · farm-lot-boundary.js
 ├── sql/
 │   ├── bambosa_db.sql         # Full schema + seed accounts (fresh install)
-│   └── migrations/            # 001 … 007 for existing installs (+ .htaccess)
+│   └── migrations/            # 001 … 008 for existing installs (+ .htaccess)
 └── docs/diagrams/             # erd.mermaid · dfd_level0.mermaid · dfd_level1.mermaid · README.md
 ```
 
@@ -254,7 +255,13 @@ bambosa/
   them in User Management.
 - Forgotten passwords are self-service through `forgot_password.php` /
   `reset_password.php` (see [Outgoing email](#outgoing-email)).
-- Every successful login is written to `login_logs` (user, time, IP).
+- Every login attempt is written to `login_logs` (user, time, IP, status).
+  Successful logins have status `Success`; failures record the reason, e.g.
+  `Wrong password, attempt #2`, `Unknown email, attempt #1`, or
+  `Correct password, account pending` / `inactive`. The attempt number counts
+  consecutive failures for that account since its last successful login.
+  The login page itself still shows the same generic error, so it never
+  reveals whether an email exists.
 - Direct folder URLs such as `/bambosa/member/` work: each folder's
   `index.php` simply loads its `dashboard.php`, which applies the normal
   login and role checks.
@@ -282,10 +289,12 @@ records stay with officers).
   demote or deactivate **their own** account from User Management (they
   edit themselves via My Profile), and the **last active admin** can never
   be deleted, demoted or deactivated — so the system cannot be locked out.
-- **User Login Logs** (`admin/login_logs.php`) — every successful login by
-  any role, newest first: date/time, name, email, role, IP. Search matches
-  name, email, role, IP or the timestamp text (e.g. `2026-10`); 15 rows per
-  page. Deleting an account also removes its log rows.
+- **User Login Logs** (`admin/login_logs.php`) — every login attempt by
+  any role, newest first: date/time, name, email, role, IP and a status
+  badge (green `Success`, red for failures). Attempts with an email that
+  matches no account show as "Unknown user" with the typed email. Search
+  matches name, email, role, IP, status (e.g. `wrong password`) or the
+  timestamp text (e.g. `2026-10`); 15 rows per page. Deleting an account also removes its log rows.
 - **IP address details** (`admin/ip.php?address=…`) — each IP in the logs
   is a link: a map on the left (above the details on phones) and country,
   region, city, ZIP, coordinates, timezone and local time there, currency,
@@ -841,7 +850,7 @@ Thirteen tables, all in `sql/bambosa_db.sql`:
 | Table | Purpose |
 |---|---|
 | `users` | All accounts — role `admin` / `officer` / `member`, status `active` / `inactive` / `pending` |
-| `login_logs` | One row per successful login (user, time, IP) |
+| `login_logs` | One row per login attempt (user, time, IP, `status`; `email_attempted` for unknown emails) |
 | `password_resets` | Hashed, single-use password-reset tokens |
 | `sectors` | Irrigation sectors, with optional `boundary_geojson` |
 | `farm_lots` | Members' parcels: sector, area, `boundary_geojson`, derived `latitude`/`longitude` |
@@ -891,5 +900,5 @@ where noted):
 
 Possible follow-ups beyond the original scope: printable/PDF bills and
 receipts; importing a real QGIS-exported boundary dataset (GeoJSON or
-shapefile-derived) to refine the drawn polygons; recording failed login
-attempts.
+shapefile-derived) to refine the drawn polygons; locking an account or IP
+after repeated failed logins.

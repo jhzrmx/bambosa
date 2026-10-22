@@ -1849,6 +1849,18 @@ footer.site-footer {
 .role-officer { background: #e3f1fa; color: #1d6f96; }
 .role-member  { background: #e8f6ee; color: #1f7a4d; }
 
+/* ---------- Login log status (admin User Login Logs) ---------- */
+.login-status {
+  display: inline-block;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.login-status-ok   { background: #e8f6ee; color: #1f7a4d; }
+.login-status-fail { background: #fdecea; color: #c0392b; }
+
 .filter-tabs.wrap { flex-wrap: wrap; }
 .you-tag { font-size: 0.75rem; color: var(--clr-muted); font-weight: 600; margin-left: 0.4rem; }
 

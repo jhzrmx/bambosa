@@ -37,9 +37,11 @@ erDiagram
 
     LOGIN_LOGS {
         int log_id PK
-        int user_id FK
+        int user_id FK "NULL if the email typed matches no account"
         timestamp login_time
         varchar ip_address
+        varchar status "Success, or e.g. Wrong password, attempt #2"
+        varchar email_attempted "typed email when no account matches"
     }
 
     PASSWORD_RESETS {

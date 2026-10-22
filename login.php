@@ -2,6 +2,7 @@
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/includes/login_logs.php';
 
 if (is_logged_in()) {
     redirect_to_dashboard();
@@ -31,11 +32,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $user = $stmt->fetch();
 
             if (!$user || !password_verify($password, $user['password_hash'])) {
+                // Same message either way, so the page never reveals whether
+                // the email exists; only the admin-only log tells them apart.
                 $errors[] = 'Incorrect email or password.';
+                record_failed_login($pdo, $user ? (int) $user['user_id'] : null, $old_email, $user ? 'wrong_password' : 'unknown_email');
             } elseif ($user['status'] === 'pending') {
                 $errors[] = 'Your account is pending approval by an association officer.';
+                record_failed_login($pdo, (int) $user['user_id'], $old_email, 'pending');
             } elseif ($user['status'] === 'inactive') {
                 $errors[] = 'Your account has been deactivated. Please contact an officer.';
+                record_failed_login($pdo, (int) $user['user_id'], $old_email, 'inactive');
             } else {
                 // Prevent session fixation
                 session_regenerate_id(true);
@@ -44,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['full_name'] = $user['full_name'];
                 $_SESSION['role']      = $user['role'];
 
-                // Optional login audit
+                // Login audit (status column defaults to 'Success')
                 try {
                     $log = $pdo->prepare(
                         'INSERT INTO login_logs (user_id, ip_address) VALUES (:uid, :ip)'

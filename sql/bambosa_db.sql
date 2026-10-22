@@ -19,12 +19,18 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at     TIMESTAMP           DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- Optional: table to support "remember me" / session audit later
+-- Login audit: one row per login attempt, successful or not (login.php).
+--   status          'Success', or the reason it failed, e.g.
+--                   'Wrong password, attempt #2' (see includes/login_logs.php)
+--   user_id         NULL when the email typed in matches no account;
+--                   the typed email is then kept in email_attempted
 CREATE TABLE IF NOT EXISTS login_logs (
-    log_id      INT AUTO_INCREMENT PRIMARY KEY,
-    user_id     INT NOT NULL,
-    login_time  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    ip_address  VARCHAR(45),
+    log_id          INT AUTO_INCREMENT PRIMARY KEY,
+    user_id         INT NULL,
+    login_time      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ip_address      VARCHAR(45),
+    status          VARCHAR(100) NOT NULL DEFAULT 'Success',
+    email_attempted VARCHAR(150) NULL DEFAULT NULL,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
