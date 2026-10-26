@@ -59,6 +59,8 @@ $pageBaseUrl = base_url('officer/members.php' . ($statusFilter ? '?status=' . $s
       <a href="<?= base_url('officer/members.php?status=inactive') ?>" class="<?= $statusFilter === 'inactive' ? 'active' : '' ?>">Inactive</a>
     </div>
 
+    <p><a href="<?= base_url('officer/members_export.php') ?>" class="link-btn approve" style="font-size:0.95rem;">⬇ Export members (Excel / CSV)</a></p>
+
     <?php render_search_box($pageBaseUrl, $searchTerm, 'Search by name, email, or contact number…', ['status' => $statusFilter]); ?>
 
     <div class="table-scroll">

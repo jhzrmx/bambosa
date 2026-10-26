@@ -171,6 +171,7 @@ bambosa/
 │   ├── dashboard.php          # Stat cards + calendar
 │   ├── profile.php            # Own name / contact / email / password
 │   ├── members.php            # List / filter members; approve, deactivate
+│   ├── members_export.php     # Export members to XLSX / CSV (filter by sector, status, layout)
 │   ├── member_view.php        # One member + their farm lots (CRUD, boundary drawing)
 │   ├── update_status.php      # POST handler: approve / deactivate / reactivate a member (approval emails them)
 │   ├── sectors.php            # Sector CRUD
@@ -212,12 +213,15 @@ bambosa/
 │   ├── schedules.php          # Rotation schedules
 │   ├── billing.php            # Billing periods, bills, payments
 │   ├── calendar_events.php    # Merged schedule + reservation events for the calendar
+│   ├── members_export.php     # Export query + CSV / XLSX writers
 │   ├── mailer.php             # PHPMailer wrapper: send_email(), render_email_layout(), send_account_activation_email()
 │   ├── password_reset.php     # Reset-token generation / verification / consumption
 │   └── partials/              # admin_, officer_ and member_sidebar.php (nav + mobile drawer)
 │
 ├── config/                    # database.php · timezone.php · smtp.php (+ .htaccess)
 ├── vendor/phpmailer/phpmailer/src/  # PHPMailer 6.12.0 core files, vendored (+ .htaccess)
+├── vendor/shuchkin/simplexlsxgen/   # SimpleXLSXGen 1.5.17 (MIT): src/SimpleXLSXGen.php + license.md only
+
 ├── error/                     # 400 · 401 · 403 · 404 · 500 · 503 .html + router.php
 ├── assets/
 │   ├── css/style.css          # All styling, responsive breakpoints, map styles
@@ -364,6 +368,17 @@ Every role has a profile page (`admin/`, `officer/` and `member/profile.php`):
 - **Members** update their own name, contact number and email, and see their lots
   and total area read-only (`member/profile.php`). Land area and sector are
   officer-managed because they drive billing.
+- **Export** (`officer/members_export.php`, linked from Member Management;
+  the Member Management sidebar item stays highlighted) downloads members as
+  `.xlsx` or `.csv`. Filters: sector (all, one sector, or no sector assigned)
+  and member status; rows are either one per member (lot count, total area,
+  sectors) or one per farm lot (lot, sector, area, coordinates, notes). With
+  a sector chosen, only members having a lot in it are included and the
+  totals cover that sector only. The XLSX opens with a centered letterhead
+  (association name, address, report title, filters + date generated), then
+  a green header row, frozen panes, auto-filter and column widths; contact numbers are stored as text
+  so leading zeros survive. CSV is UTF-8 with BOM and guards against
+  spreadsheet formulas (values starting with `=`, `+`, `-`, `@`).
 - All data access goes through `includes/members.php` using prepared
   statements.
 
