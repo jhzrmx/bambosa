@@ -43,9 +43,9 @@ build step, no Composer), so it runs on a stock XAMPP install.
 
 **Sidebar navigation per role**
 
-- **Admin:** Dashboard · My Profile · User Management · User Login Logs · System Clock
-- **Officer:** Dashboard · My Profile · Member Management · Sector Management · Sector Boundaries · Billing & ISF · Rotation Scheduling · Machinery Inventory · Reservation Requests (with a pending-count badge) · Member Map
-- **Member:** Dashboard · My Profile & Farm Lot · My Billing / ISF · Rotation Status · Reserve Machinery · Reservation History · My Farm Map
+- **Admin:** Dashboard · My Profile · Account Security · User Management · User Login Logs · System Clock
+- **Officer:** Dashboard · My Profile · Account Security · Member Management · Sector Management · Sector Boundaries · Billing & ISF · Rotation Scheduling · Machinery Inventory · Reservation Requests (with a pending-count badge) · Member Map
+- **Member:** Dashboard · My Profile & Farm Lot · Account Security · My Billing / ISF · Rotation Status · Reserve Machinery · Reservation History · My Farm Map
 
 Cross-cutting: responsive UI with a slide-in mobile drawer, search and
 pagination on every list page, custom error pages, a configurable timezone
@@ -158,7 +158,8 @@ bambosa/
 ├── admin/                     # role = admin
 │   ├── index.php              # Directory entry point → dashboard.php
 │   ├── dashboard.php          # Account counts + quick actions
-│   ├── profile.php            # Own name / contact / email / password
+│   ├── profile.php            # Own name / contact / email
+│   ├── security.php           # Account Security: change password + own login history
 │   ├── users.php              # List, filter and search ALL accounts; edit / delete links
 │   ├── user_edit.php          # Add an account / edit any other account (activating a pending one emails them)
 │   ├── user_delete.php        # POST handler: delete an account
@@ -169,7 +170,8 @@ bambosa/
 ├── officer/                   # role = officer
 │   ├── index.php              # Directory entry point → dashboard.php
 │   ├── dashboard.php          # Stat cards + calendar
-│   ├── profile.php            # Own name / contact / email / password
+│   ├── profile.php            # Own name / contact / email
+│   ├── security.php           # Account Security: change password + own login history
 │   ├── members.php            # List / filter members; approve, deactivate
 │   ├── members_export.php     # Export members to XLSX / CSV (filter by sector, status, layout)
 │   ├── member_view.php        # One member + their farm lots (CRUD, boundary drawing)
@@ -190,7 +192,8 @@ bambosa/
 ├── member/                    # role = member
 │   ├── index.php              # Directory entry point → dashboard.php
 │   ├── dashboard.php          # Stat cards + calendar
-│   ├── profile.php            # Own name / contact / email / password; read-only farm lots
+│   ├── profile.php            # Own name / contact / email; read-only farm lots
+│   ├── security.php           # Account Security: change password + own login history
 │   ├── billing.php            # Own ISF bills and payment history
 │   ├── machinery.php          # Request a reservation
 │   ├── machinery_history.php  # Own reservations + equipment condition
@@ -205,6 +208,7 @@ bambosa/
 │   ├── members.php            # Users, farm lots, sectors, map queries
 │   ├── admin_users.php        # Account management for admins + safety guards
 │   ├── login_logs.php         # login_logs queries + record_failed_login()
+│   ├── account_security.php   # Change-password handler + a user's own login history
 │   ├── ip_lookup.php          # ip-api.com lookup (validation, 24 h cache)
 │   ├── timezone.php           # Applies config/timezone.php to PHP + MySQL
 │   ├── sector_boundaries.php  # Boundary storage, point-in-polygon, auto-assignment
@@ -347,9 +351,17 @@ Every role has a profile page (`admin/`, `officer/` and `member/profile.php`):
   address, so changing it requires the **current password**; it must be a
   valid address not used by another account. No confirmation link is sent
   to the new address.
-- **Password changes** require the current password, at least 8 new
-  characters, entered twice. This stops an unattended session from being
-  used to lock the real owner out. All roles share `change_user_password()`.
+- **Account Security** (`admin/`, `officer/` and `member/security.php`, shared
+  logic in `includes/account_security.php`) holds the **password change**
+  (current password required, at least 8 new characters, entered twice, so
+  an unattended session can't be used to lock the real owner out; all roles
+  share `change_user_password()`) and the signed-in user's own **login
+  activity**: every successful and failed attempt against their account
+  (time, IP address, status), newest first, with an "All attempts / Failed
+  only" switch, pagination, and a warning banner when there were failed
+  attempts in the last 30 days. Attempts made with an email that matches no
+  account can't be tied to anyone, so only the admin's User Login Logs
+  page shows those.
 - The account form and the password form post to the same endpoint and are
   told apart by a hidden `form=password` field, so each shows its own
   success/error state.

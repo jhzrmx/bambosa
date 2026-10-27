@@ -340,7 +340,7 @@ function verify_user_password(PDO $pdo, int $userId, string $password): bool
 /**
  * Changes a user's own password after verifying their current one.
  *
- * Used by both member/profile.php and officer/profile.php — any logged-in
+ * Used by the Account Security pages (admin/, officer/ and member/security.php) — any logged-in
  * user can change their own password this way (there's no "reset someone
  * else's password" officer action; that's a separate, bigger feature).
  *
