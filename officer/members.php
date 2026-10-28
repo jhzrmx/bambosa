@@ -8,7 +8,7 @@ require_once __DIR__ . '/../includes/pagination.php';
 require_role('officer');
 
 $statusFilter = $_GET['status'] ?? '';
-$statusFilter = in_array($statusFilter, ['active', 'inactive', 'pending'], true) ? $statusFilter : null;
+$statusFilter = in_array($statusFilter, USER_STATUSES, true) ? $statusFilter : null;
 $searchTerm = get_search_term();
 
 $totalMembers = count_members($pdo, $statusFilter, $searchTerm);

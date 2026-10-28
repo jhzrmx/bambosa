@@ -87,11 +87,8 @@ $activeNav = 'map';
 (function () {
   var boundaries = <?= json_encode($boundaryPolygons, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
-  var map = L.map('farmMap');
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-  }).addTo(map);
+  var map = BAMBOSA.createMap('farmMap');
+  var escapeHtml = BAMBOSA.escapeHtml;
 
   var fitTargets = [];
 
@@ -113,12 +110,6 @@ $activeNav = 'map';
     poly.addTo(map);
     b.boundary.forEach(function (pt) { fitTargets.push(pt); });
   });
-
-  function escapeHtml(str) {
-    var div = document.createElement('div');
-    div.appendChild(document.createTextNode(str));
-    return div.innerHTML;
-  }
 
   if (fitTargets.length > 0) {
     map.fitBounds(L.latLngBounds(fitTargets).pad(0.15));

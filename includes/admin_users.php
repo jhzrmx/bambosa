@@ -5,11 +5,11 @@
  * admin/user_delete.php. PHP 7.4-compatible.
  *
  * Builds on helpers already in includes/members.php (get_user_by_id(),
- * email_in_use()) — require that file alongside this one.
+ * email_in_use(), create_user()) — require that file alongside this one.
  */
 
-const USER_ROLES    = ['admin', 'officer', 'member'];
-const USER_STATUSES = ['active', 'inactive', 'pending'];
+require_once __DIR__ . '/db_helpers.php';
+require_once __DIR__ . '/validation.php';
 
 /** Builds the shared WHERE clause + params for list/count queries. */
 function build_user_filter(?string $role, ?string $status, ?string $search): array
@@ -25,12 +25,13 @@ function build_user_filter(?string $role, ?string $status, ?string $search): arr
         $where[] = 'status = :status';
         $params['status'] = $status;
     }
-    if ($search !== null && $search !== '') {
-        $where[] = '(full_name LIKE :s1 OR email LIKE :s2 OR contact_number LIKE :s3)';
-        $params['s1'] = '%' . $search . '%';
-        $params['s2'] = '%' . $search . '%';
-        $params['s3'] = '%' . $search . '%';
+
+    list($searchSql, $searchParams) = db_like_clause(['full_name', 'email', 'contact_number'], $search, 's');
+    if ($searchSql !== '') {
+        $where[]  = $searchSql;
+        $params  += $searchParams;
     }
+
     return [implode(' AND ', $where), $params];
 }
 
@@ -39,28 +40,13 @@ function get_users(PDO $pdo, ?string $role = null, ?string $status = null, ?stri
 {
     list($where, $params) = build_user_filter($role, $status, $search);
     $sql = "SELECT * FROM users WHERE $where ORDER BY FIELD(role,'admin','officer','member'), full_name";
-    if ($limit !== null && $offset !== null) {
-        $sql .= ' LIMIT :limit OFFSET :offset';
-    }
-
-    $stmt = $pdo->prepare($sql);
-    foreach ($params as $k => $v) {
-        $stmt->bindValue($k, $v, PDO::PARAM_STR);
-    }
-    if ($limit !== null && $offset !== null) {
-        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
-    }
-    $stmt->execute();
-    return $stmt->fetchAll();
+    return db_fetch_all($pdo, $sql, $params, $limit, $offset);
 }
 
 function count_users(PDO $pdo, ?string $role = null, ?string $status = null, ?string $search = null): int
 {
     list($where, $params) = build_user_filter($role, $status, $search);
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM users WHERE $where");
-    $stmt->execute($params);
-    return (int) $stmt->fetch()['cnt'];
+    return db_count($pdo, "SELECT COUNT(*) AS cnt FROM users WHERE $where", $params);
 }
 
 /** ['admin' => n, 'officer' => n, 'member' => n] */
@@ -111,23 +97,6 @@ function user_change_guard_error(PDO $pdo, array $target, int $actingUserId, ?st
     return null;
 }
 
-/** Creates an account. Returns the new user_id. Throws PDOException on duplicate email. */
-function create_user(PDO $pdo, string $fullName, string $email, string $password, string $role, ?string $contact, string $status): int
-{
-    $stmt = $pdo->prepare(
-        'INSERT INTO users (full_name, email, password_hash, role, contact_number, status)
-         VALUES (:full_name, :email, :hash, :role, :contact, :status)'
-    );
-    $stmt->execute([
-        'full_name' => $fullName,
-        'email'     => $email,
-        'hash'      => password_hash($password, PASSWORD_DEFAULT),
-        'role'      => $role,
-        'contact'   => $contact ?: null,
-        'status'    => $status,
-    ]);
-    return (int) $pdo->lastInsertId();
-}
 
 /**
  * Updates any account. $newPassword = null/'' leaves the password unchanged.
@@ -148,7 +117,7 @@ function admin_update_user(PDO $pdo, int $userId, string $fullName, string $emai
         'id'        => $userId,
     ];
     if ($newPassword) {
-        $params['hash'] = password_hash($newPassword, PASSWORD_DEFAULT);
+        $params['hash'] = hash_password($newPassword);
     }
     $pdo->prepare($sql)->execute($params);
 }

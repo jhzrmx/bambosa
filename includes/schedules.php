@@ -4,6 +4,8 @@
  * Requires $pdo from config/database.php to already be loaded.
  */
 
+require_once __DIR__ . '/db_helpers.php';
+
 /**
  * All schedules, joined with sector name, soonest first. Optionally only
  * upcoming ones, and/or a search term (matched against sector name and
@@ -14,65 +16,46 @@
  */
 function get_all_schedules(PDO $pdo, bool $upcomingOnly = false, ?string $search = null, ?int $limit = null, ?int $offset = null): array
 {
-    $sql = 'SELECT rs.*, s.sector_name
+    list($where, $params) = build_schedule_filter($upcomingOnly, $search);
+    $sql = "SELECT rs.*, s.sector_name
             FROM rotation_schedules rs
             JOIN sectors s ON s.sector_id = rs.sector_id
-            WHERE 1=1';
-    $params = [];
-
-    if ($upcomingOnly) {
-        $sql .= ' AND rs.end_time >= NOW()';
-    }
-
-    if ($search) {
-        $sql .= ' AND (s.sector_name LIKE :search1 OR rs.notes LIKE :search2)';
-        $params['search1'] = '%' . $search . '%';
-        $params['search2'] = '%' . $search . '%';
-    }
-
-    $sql .= ' ORDER BY rs.start_time ASC';
-
-    if ($limit !== null && $offset !== null) {
-        $sql .= ' LIMIT :limit OFFSET :offset';
-    }
-
-    $stmt = $pdo->prepare($sql);
-    foreach ($params as $key => $value) {
-        $stmt->bindValue($key, $value, PDO::PARAM_STR);
-    }
-    if ($limit !== null && $offset !== null) {
-        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
-    }
-    $stmt->execute();
-    return $stmt->fetchAll();
+            WHERE $where
+            ORDER BY rs.start_time ASC";
+    return db_fetch_all($pdo, $sql, $params, $limit, $offset);
 }
 
 /** Count of schedules matching an optional upcoming/search filter (for pagination totals). */
 function count_schedules(PDO $pdo, bool $upcomingOnly = false, ?string $search = null): int
 {
-    $sql = 'SELECT COUNT(*) AS cnt
-            FROM rotation_schedules rs
-            JOIN sectors s ON s.sector_id = rs.sector_id
-            WHERE 1=1';
+    list($where, $params) = build_schedule_filter($upcomingOnly, $search);
+    return db_count(
+        $pdo,
+        "SELECT COUNT(*) AS cnt
+         FROM rotation_schedules rs
+         JOIN sectors s ON s.sector_id = rs.sector_id
+         WHERE $where",
+        $params
+    );
+}
+
+/** Shared WHERE clause + params for get_all_schedules() / count_schedules(). */
+function build_schedule_filter(bool $upcomingOnly, ?string $search): array
+{
+    $where  = ['1=1'];
     $params = [];
 
     if ($upcomingOnly) {
-        $sql .= ' AND rs.end_time >= NOW()';
+        $where[] = 'rs.end_time >= NOW()';
     }
 
-    if ($search) {
-        $sql .= ' AND (s.sector_name LIKE :search1 OR rs.notes LIKE :search2)';
-        $params['search1'] = '%' . $search . '%';
-        $params['search2'] = '%' . $search . '%';
+    list($searchSql, $searchParams) = db_like_clause(['s.sector_name', 'rs.notes'], $search);
+    if ($searchSql !== '') {
+        $where[]  = $searchSql;
+        $params  += $searchParams;
     }
 
-    $stmt = $pdo->prepare($sql);
-    foreach ($params as $key => $value) {
-        $stmt->bindValue($key, $value, PDO::PARAM_STR);
-    }
-    $stmt->execute();
-    return (int) $stmt->fetch()['cnt'];
+    return [implode(' AND ', $where), $params];
 }
 
 /** Schedules for one specific sector (e.g. to show a member only their own sector's schedule). */
@@ -199,22 +182,6 @@ function create_schedule(PDO $pdo, int $sectorId, string $startTime, string $end
         'created_by' => $createdBy,
     ]);
     return (int) $pdo->lastInsertId();
-}
-
-function update_schedule(PDO $pdo, int $id, int $sectorId, string $startTime, string $endTime, ?string $notes): void
-{
-    $stmt = $pdo->prepare(
-        'UPDATE rotation_schedules SET sector_id = :sector_id, start_time = :start_time,
-            end_time = :end_time, notes = :notes
-         WHERE schedule_id = :id'
-    );
-    $stmt->execute([
-        'sector_id'  => $sectorId,
-        'start_time' => $startTime,
-        'end_time'   => $endTime,
-        'notes'      => $notes ?: null,
-        'id'         => $id,
-    ]);
 }
 
 /**

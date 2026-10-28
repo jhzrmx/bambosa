@@ -173,11 +173,7 @@ $activeNav = 'login_logs';
   var lon = <?= json_encode((float) $info['lon']) ?>;
   var label = <?= json_encode($place !== '' ? $place : (string) $address, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
-  var map = L.map('ipMap').setView([lat, lon], 10);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-  }).addTo(map);
+  var map = BAMBOSA.createMap('ipMap').setView([lat, lon], 10);
 
   // IP geolocation is only city-level, so show an approximate-area circle
   // as well as the point itself.

@@ -24,20 +24,20 @@ flowchart TB
     D7[("D7 billing_periods /<br/>isf_bills / isf_payments")]
 
     %% ---- Authentication ----
-    Member -- "signup form, login,<br/>forgot/reset password" --> P1
-    Officer -- "login, approve/activate member" --> P1
-    Admin -- "login, own profile/email/<br/>password update" --> P1
-    P1 -- "session, validation errors,<br/>reset confirmation" --> Member
-    P1 -- "session, member list w/ status" --> Officer
-    P1 -- "session, profile confirmation" --> Admin
+    Member -- "signup form, login (successful or<br/>failed attempt), forgot/reset password,<br/>profile / password changes" --> P1
+    Officer -- "login (successful or failed attempt),<br/>approve/activate member,<br/>profile / password changes" --> P1
+    Admin -- "login (successful or failed attempt),<br/>own profile / password changes" --> P1
+    P1 -- "session, validation errors,<br/>reset confirmation,<br/>own login activity (Account Security)" --> Member
+    P1 -- "session, member list w/ status,<br/>own login activity (Account Security)" --> Officer
+    P1 -- "session, profile confirmation,<br/>own login activity (Account Security)" --> Admin
     P1 <--> D1
     P1 <--> D2
     P1 -- "reset link / activation email" --> SMTP
     SMTP -- "send result" --> P1
 
     %% ---- Member & Farm Lot ----
-    Officer -- "add/edit member farm lot,<br/>polygon boundary, land area" --> P2
-    P2 -- "farm lot records, totals" --> Officer
+    Officer -- "add/edit member farm lot,<br/>polygon boundary, land area,<br/>member export request (sector / status)" --> P2
+    P2 -- "farm lot records, totals,<br/>member export file (XLSX / CSV)" --> Officer
     Member -- "view own profile &amp; lots" --> P2
     P2 -- "read-only lot list" --> Member
     P2 <--> D3
@@ -86,7 +86,7 @@ flowchart TB
     P8 -- "account list (all roles), login log<br/>pages, validation &amp; safety-rule errors" --> Admin
     P8 <--> D1
     P8 -- "cascade delete of<br/>logs &amp; reset tokens" --> D2
-    D2 -- "login history<br/>(who, when, IP)" --> P8
+    D2 -- "login history<br/>(who, when, IP, success / failure)" --> P8
     P8 -- "activation email<br/>(pending → active)" --> SMTP
     SMTP -- "send result" --> P8
     P8 -- "IP address from a login log" --> IPAPI

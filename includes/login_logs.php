@@ -8,6 +8,8 @@
  * PHP 7.4-compatible.
  */
 
+require_once __DIR__ . '/db_helpers.php';
+
 /**
  * Records one failed login attempt and returns the status text it stored.
  *
@@ -70,17 +72,15 @@ function record_failed_login(PDO $pdo, ?int $userId, string $emailTyped, string 
 /** Shared WHERE clause + params for the list/count queries. */
 function build_login_log_filter(?string $search): array
 {
-    if ($search === null || $search === '') {
-        return ['1=1', []];
-    }
     // Searchable: name, email (account's or the one typed), role, IP address,
     // status (so "wrong password" or "failed" narrows to bad attempts) and
     // the timestamp text (so "2026-10" or "2026-10-07 09" narrows by date/time).
-    $where = '(u.full_name LIKE :s1 OR u.email LIKE :s2 OR u.role LIKE :s3
-               OR ll.ip_address LIKE :s4 OR CAST(ll.login_time AS CHAR) LIKE :s5
-               OR ll.status LIKE :s6 OR ll.email_attempted LIKE :s7)';
-    $like = '%' . $search . '%';
-    return [$where, ['s1' => $like, 's2' => $like, 's3' => $like, 's4' => $like, 's5' => $like, 's6' => $like, 's7' => $like]];
+    list($searchSql, $params) = db_like_clause(
+        ['u.full_name', 'u.email', 'u.role', 'll.ip_address', 'CAST(ll.login_time AS CHAR)', 'll.status', 'll.email_attempted'],
+        $search,
+        's'
+    );
+    return [$searchSql !== '' ? $searchSql : '1=1', $params];
 }
 
 /**
@@ -98,31 +98,18 @@ function get_login_logs(PDO $pdo, ?string $search = null, ?int $limit = null, ?i
             LEFT JOIN users u ON u.user_id = ll.user_id
             WHERE $where
             ORDER BY ll.login_time DESC, ll.log_id DESC";
-    if ($limit !== null && $offset !== null) {
-        $sql .= ' LIMIT :limit OFFSET :offset';
-    }
-
-    $stmt = $pdo->prepare($sql);
-    foreach ($params as $k => $v) {
-        $stmt->bindValue($k, $v, PDO::PARAM_STR);
-    }
-    if ($limit !== null && $offset !== null) {
-        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
-    }
-    $stmt->execute();
-    return $stmt->fetchAll();
+    return db_fetch_all($pdo, $sql, $params, $limit, $offset);
 }
 
 function count_login_logs(PDO $pdo, ?string $search = null): int
 {
     list($where, $params) = build_login_log_filter($search);
-    $stmt = $pdo->prepare(
+    return db_count(
+        $pdo,
         "SELECT COUNT(*) AS cnt
          FROM login_logs ll
          LEFT JOIN users u ON u.user_id = ll.user_id
-         WHERE $where"
+         WHERE $where",
+        $params
     );
-    $stmt->execute($params);
-    return (int) $stmt->fetch()['cnt'];
 }

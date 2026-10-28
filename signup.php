@@ -2,6 +2,7 @@
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/includes/members.php';
 
 if (is_logged_in()) {
     redirect_to_dashboard();
@@ -27,12 +28,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Full name is required.';
     }
 
-    if (!filter_var($old['email'], FILTER_VALIDATE_EMAIL)) {
+    if (!is_valid_email($old['email'])) {
         $errors[] = 'Please enter a valid email address.';
     }
 
-    if (strlen($password) < 8) {
-        $errors[] = 'Password must be at least 8 characters long.';
+    if ($lengthError = password_length_error($password)) {
+        $errors[] = $lengthError;
     }
 
     if ($password !== $confirm_password) {
@@ -45,29 +46,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($errors)) {
         try {
-            // Check for existing email
-            $stmt = $pdo->prepare('SELECT user_id FROM users WHERE email = :email');
-            $stmt->execute(['email' => $old['email']]);
-
-            if ($stmt->fetch()) {
+            if (email_in_use($pdo, $old['email'])) {
                 $errors[] = 'An account with that email already exists.';
             } else {
-                $hash = password_hash($password, PASSWORD_DEFAULT);
-
-                $stmt = $pdo->prepare(
-                    'INSERT INTO users (full_name, email, password_hash, role, contact_number, status)
-                     VALUES (:full_name, :email, :password_hash, :role, :contact_number, :status)'
-                );
-                $stmt->execute([
-                    'full_name'      => $old['full_name'],
-                    'email'          => $old['email'],
-                    'password_hash'  => $hash,
-                    'role'           => $role,
-                    'contact_number' => $old['contact_number'] ?: null,
-                    // New members start "pending" until an officer verifies/approves them.
-                    // Change to 'active' below if you want instant access instead.
-                    'status'         => 'pending',
-                ]);
+                // New members start "pending" until an officer verifies/approves them.
+                create_user($pdo, $old['full_name'], $old['email'], $password, $role, $old['contact_number'], 'pending');
 
                 header('Location: ' . base_url('login.php?registered=1'));
                 exit;
@@ -135,11 +118,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <div class="form-row">
         <div class="form-group">
           <label for="password">Password</label>
-          <input type="password" id="password" name="password" required minlength="8">
+          <input type="password" id="password" name="password" required minlength="<?= PASSWORD_MIN_LENGTH ?>">
         </div>
         <div class="form-group">
           <label for="confirm_password">Confirm Password</label>
-          <input type="password" id="confirm_password" name="confirm_password" required minlength="8">
+          <input type="password" id="confirm_password" name="confirm_password" required minlength="<?= PASSWORD_MIN_LENGTH ?>">
         </div>
       </div>
 

@@ -8,6 +8,9 @@
  * (change_user_password). PHP 7.4-compatible.
  */
 
+require_once __DIR__ . '/db_helpers.php';
+require_once __DIR__ . '/validation.php';
+
 /**
  * Handles the change-password POST, if any.
  * Returns [array $errors, bool $saved]; both empty/false on a plain GET.
@@ -31,8 +34,8 @@ function handle_password_change(PDO $pdo, int $userId): array
 
     if ($currentPassword === '' || $newPassword === '' || $confirmPassword === '') {
         $errors[] = 'Please fill in all three password fields.';
-    } elseif (strlen($newPassword) < 8) {
-        $errors[] = 'New password must be at least 8 characters.';
+    } elseif ($lengthError = password_length_error($newPassword, 'New password')) {
+        $errors[] = $lengthError;
     } elseif ($newPassword !== $confirmPassword) {
         $errors[] = 'New password and confirmation do not match.';
     }
@@ -51,13 +54,11 @@ function handle_password_change(PDO $pdo, int $userId): array
 /** Number of this user's login_logs rows (all, or failed only). */
 function count_user_login_history(PDO $pdo, int $userId, bool $failedOnly = false): int
 {
-    $sql = 'SELECT COUNT(*) AS cnt FROM login_logs WHERE user_id = :uid';
-    if ($failedOnly) {
-        $sql .= " AND status <> 'Success'";
-    }
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute(['uid' => $userId]);
-    return (int) $stmt->fetch()['cnt'];
+    return db_count(
+        $pdo,
+        'SELECT COUNT(*) AS cnt FROM login_logs WHERE user_id = :uid' . ($failedOnly ? " AND status <> 'Success'" : ''),
+        ['uid' => $userId]
+    );
 }
 
 /** This user's login attempts, newest first (paged). */
@@ -65,18 +66,10 @@ function get_user_login_history(PDO $pdo, int $userId, bool $failedOnly, int $li
 {
     $sql = 'SELECT log_id, login_time, ip_address, status
             FROM login_logs
-            WHERE user_id = :uid';
-    if ($failedOnly) {
-        $sql .= " AND status <> 'Success'";
-    }
-    $sql .= ' ORDER BY login_time DESC, log_id DESC LIMIT :limit OFFSET :offset';
-
-    $stmt = $pdo->prepare($sql);
-    $stmt->bindValue('uid', $userId, PDO::PARAM_INT);
-    $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-    $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
-    $stmt->execute();
-    return $stmt->fetchAll();
+            WHERE user_id = :uid'
+         . ($failedOnly ? " AND status <> 'Success'" : '')
+         . ' ORDER BY login_time DESC, log_id DESC';
+    return db_fetch_all($pdo, $sql, ['uid' => $userId], $limit, $offset);
 }
 
 /**

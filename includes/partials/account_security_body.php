@@ -37,15 +37,15 @@ $historyBaseUrl = $securityUrl . ($showFailedOnly ? '?show=failed' : '');
   <div class="form-row">
     <div class="form-group">
       <label for="new_password">New Password</label>
-      <input type="password" id="new_password" name="new_password" required minlength="8" autocomplete="new-password">
+      <input type="password" id="new_password" name="new_password" required minlength="<?= PASSWORD_MIN_LENGTH ?>" autocomplete="new-password">
     </div>
     <div class="form-group">
       <label for="confirm_password">Confirm New Password</label>
-      <input type="password" id="confirm_password" name="confirm_password" required minlength="8" autocomplete="new-password">
+      <input type="password" id="confirm_password" name="confirm_password" required minlength="<?= PASSWORD_MIN_LENGTH ?>" autocomplete="new-password">
     </div>
   </div>
 
-  <p class="muted-note">Must be at least 8 characters.</p>
+  <p class="muted-note">Must be at least <?= PASSWORD_MIN_LENGTH ?> characters.</p>
 
   <button type="submit" class="btn-full" style="max-width:220px;">Update Password</button>
 </form>

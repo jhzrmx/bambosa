@@ -79,7 +79,7 @@ if (is_logged_in()) {
   </section>
 
   <section class="landing-section features-section">
-    <div class="section-heading">
+    <div class="landing-section-heading">
       <div class="eyebrow">ONE PLATFORM</div>
       <h2>Everything BAMBOSA needs to stay organized.</h2>
       <p>
@@ -167,7 +167,7 @@ if (is_logged_in()) {
   </section>
 
   <section class="landing-section workflow-section">
-    <div class="section-heading">
+    <div class="landing-section-heading">
       <div class="eyebrow">HOW IT WORKS</div>
       <h2>Keep the irrigation workflow simple.</h2>
     </div>

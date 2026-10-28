@@ -4,6 +4,7 @@ require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/includes/mailer.php';
 require_once __DIR__ . '/includes/password_reset.php';
+require_once __DIR__ . '/includes/validation.php';
 
 if (is_logged_in()) {
     redirect_to_dashboard();
@@ -29,8 +30,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($newPassword === '' || $confirmPassword === '') {
         $errors[] = 'Please fill in both password fields.';
-    } elseif (strlen($newPassword) < 8) {
-        $errors[] = 'Password must be at least 8 characters.';
+    } elseif ($lengthError = password_length_error($newPassword)) {
+        $errors[] = $lengthError;
     } elseif ($newPassword !== $confirmPassword) {
         $errors[] = 'Passwords do not match.';
     }
@@ -101,15 +102,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <div class="form-group">
           <label for="new_password">New Password</label>
-          <input type="password" id="new_password" name="new_password" required minlength="8" autocomplete="new-password">
+          <input type="password" id="new_password" name="new_password" required minlength="<?= PASSWORD_MIN_LENGTH ?>" autocomplete="new-password">
         </div>
 
         <div class="form-group">
           <label for="confirm_password">Confirm New Password</label>
-          <input type="password" id="confirm_password" name="confirm_password" required minlength="8" autocomplete="new-password">
+          <input type="password" id="confirm_password" name="confirm_password" required minlength="<?= PASSWORD_MIN_LENGTH ?>" autocomplete="new-password">
         </div>
 
-        <p class="muted-note">Must be at least 8 characters.</p>
+        <p class="muted-note">Must be at least <?= PASSWORD_MIN_LENGTH ?> characters.</p>
 
         <button type="submit" class="btn-full">Reset Password</button>
       </form>

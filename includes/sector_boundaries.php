@@ -19,19 +19,6 @@
  * point-in-polygon test.
  */
 
-/** Get a sector's boundary as a PHP array of [lat, lng] pairs, or null if none drawn. */
-function get_sector_boundary(PDO $pdo, int $sectorId): ?array
-{
-    $stmt = $pdo->prepare('SELECT boundary_geojson FROM sectors WHERE sector_id = :id');
-    $stmt->execute(['id' => $sectorId]);
-    $row = $stmt->fetch();
-    if (!$row || $row['boundary_geojson'] === null) {
-        return null;
-    }
-    $points = json_decode($row['boundary_geojson'], true);
-    return is_array($points) ? $points : null;
-}
-
 /** Get every sector that has a drawn boundary, with its polygon decoded, for map display. */
 function get_sectors_with_boundaries(PDO $pdo): array
 {

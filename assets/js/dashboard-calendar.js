@@ -39,6 +39,7 @@
     var root = document.getElementById('dashCalendar');
     if (!root || !window.BAMBOSA_CALENDAR_INITIAL) return;
 
+    var escapeHtml = window.BAMBOSA.escapeHtml;
     var config = window.BAMBOSA_CALENDAR_INITIAL;
     var state = {
       year: config.year,
@@ -81,12 +82,6 @@
       });
       html += '</ul>';
       detailEl.innerHTML = html;
-    }
-
-    function escapeHtml(str) {
-      var div = document.createElement('div');
-      div.textContent = str == null ? '' : String(str);
-      return div.innerHTML;
     }
 
     function render() {

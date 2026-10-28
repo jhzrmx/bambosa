@@ -28,6 +28,8 @@
     var mapEl = document.getElementById('lotBoundaryMap');
     if (!config || !mapEl) return;
 
+    var escapeHtml = window.BAMBOSA.escapeHtml;
+
     var hiddenInput = document.getElementById(config.hiddenInputId);
     var statusText = document.getElementById(config.statusElementId);
     var clearBtn = document.getElementById(config.clearButtonId);
@@ -35,12 +37,6 @@
     var toggleSectorContext = config.toggleSectorContextId ? document.getElementById(config.toggleSectorContextId) : null;
     var toggleOtherLotsContext = config.toggleOtherLotsContextId ? document.getElementById(config.toggleOtherLotsContextId) : null;
     var legendBox = config.legendElementId ? document.getElementById(config.legendElementId) : null;
-
-    function escapeHtml(str) {
-      var div = document.createElement('div');
-      div.appendChild(document.createTextNode(String(str)));
-      return div.innerHTML;
-    }
 
     function clearAlert() {
       if (alertBox) alertBox.innerHTML = '';
@@ -53,11 +49,7 @@
     }
 
     // ---- Map setup ----
-    var map = L.map('lotBoundaryMap');
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
+    var map = window.BAMBOSA.createMap('lotBoundaryMap');
 
     // Read-only context layers — sector boundaries and other farm lots'
     // boundaries, shown dimmed/dashed purely as a visual guide while

@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !csrf_verify($_POST['csrf_token'] ?
 $userId = (int) ($_POST['user_id'] ?? 0);
 $status = $_POST['status'] ?? '';
 
-if ($userId > 0 && in_array($status, ['active', 'inactive', 'pending'], true)) {
+if ($userId > 0 && in_array($status, USER_STATUSES, true)) {
     try {
         // Look up the previous status BEFORE updating, so the activation
         // email only fires on an actual pending -> active transition, not

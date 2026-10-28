@@ -30,14 +30,16 @@ build step, no Composer), so it runs on a stock XAMPP install.
 |---|:---:|:---:|:---:|
 | Self-register via `signup.php` (starts `pending`) | ✅ | ❌ | ❌ |
 | Log in, reset a forgotten password by email | ✅ | ✅ | ✅ |
-| Edit own name / contact / email / password | ✅ | ✅ | ✅ |
+| Edit own name / contact / email | ✅ | ✅ | ✅ |
+| Change own password and review own sign-in attempts (Account Security) | ✅ | ✅ | ✅ |
 | View own farm lots, ISF bills, schedule, reservations, map | ✅ | — | — |
 | Request machinery reservations | ✅ | — | — |
 | Approve / deactivate **member** accounts | ❌ | ✅ | ✅ |
 | Manage farm lots, sectors & boundaries, schedules, machinery, reservations | ❌ | ✅ | ❌ |
 | Manage billing periods, generate bills, record payments | ❌ | ✅ | ❌ |
+| Export members to Excel / CSV (filter by sector and status) | ❌ | ✅ | ❌ |
 | Add / edit / delete **any** account (admin, officer, member), change roles & status | ❌ | ❌ | ✅ |
-| View every user's login history and look up an IP address | ❌ | ❌ | ✅ |
+| View every user's login attempts (successful and failed) and look up an IP address | ❌ | ❌ | ✅ |
 | Check the PHP / MySQL system clock | ❌ | ❌ | ✅ |
 | Dashboard | `member/dashboard.php` | `officer/dashboard.php` | `admin/dashboard.php` |
 
@@ -94,7 +96,7 @@ branded 404/403 pages). MySQL/MariaDB must still be running separately and
 | Admin | `admin@bambosa.local` | `12345678` |
 | Officer | `officer@bambosa.local` | `12345678` |
 
-Change a password from **My Profile** after logging in, or — as an admin —
+Change a password from **Account Security** after logging in, or — as an admin —
 from **User Management → Edit** (leave the field blank to keep an
 existing password). To generate a hash by hand:
 
@@ -158,7 +160,7 @@ bambosa/
 ├── admin/                     # role = admin
 │   ├── index.php              # Directory entry point → dashboard.php
 │   ├── dashboard.php          # Account counts + quick actions
-│   ├── profile.php            # Own name / contact / email
+│   ├── profile.php            # Own name / contact / email (shared handler + form partial)
 │   ├── security.php           # Account Security: change password + own login history
 │   ├── users.php              # List, filter and search ALL accounts; edit / delete links
 │   ├── user_edit.php          # Add an account / edit any other account (activating a pending one emails them)
@@ -204,11 +206,15 @@ bambosa/
 │   ├── base_path_utils.php    # BAMBOSA_BASE_PATH detection; base_url() and absolute_url() (full URLs for emails)
 │   ├── session.php            # Session bootstrap; applies the PHP timezone
 │   ├── auth.php               # Login/role checks, CSRF helpers, session ↔ DB sync
-│   ├── pagination.php        # Shared search + pagination helpers
+│   ├── pagination.php         # Shared search + pagination helpers
+│   ├── db_helpers.php         # db_fetch_all() / db_count() / db_like_clause(): shared query plumbing
+│   ├── validation.php         # USER_ROLES / USER_STATUSES, password + email rules, hash_password()
+│   ├── sidebar.php            # render_sidebar() + the shared icon table for all three portals
 │   ├── members.php            # Users, farm lots, sectors, map queries
 │   ├── admin_users.php        # Account management for admins + safety guards
 │   ├── login_logs.php         # login_logs queries + record_failed_login()
 │   ├── account_security.php   # Change-password handler + a user's own login history
+│   ├── account_profile.php    # Profile-update handler shared by the three profile pages
 │   ├── ip_lookup.php          # ip-api.com lookup (validation, 24 h cache)
 │   ├── timezone.php           # Applies config/timezone.php to PHP + MySQL
 │   ├── sector_boundaries.php  # Boundary storage, point-in-polygon, auto-assignment
@@ -220,18 +226,21 @@ bambosa/
 │   ├── members_export.php     # Export query + CSV / XLSX writers
 │   ├── mailer.php             # PHPMailer wrapper: send_email(), render_email_layout(), send_account_activation_email()
 │   ├── password_reset.php     # Reset-token generation / verification / consumption
-│   └── partials/              # admin_, officer_ and member_sidebar.php (nav + mobile drawer)
+│   └── partials/              # admin_/officer_/member_sidebar.php (each role's nav items),
+│                              #   account_security_body.php, profile_form_body.php (shared page bodies)
 │
 ├── config/                    # database.php · timezone.php · smtp.php (+ .htaccess)
-├── vendor/phpmailer/phpmailer/src/  # PHPMailer 6.12.0 core files, vendored (+ .htaccess)
-├── vendor/shuchkin/simplexlsxgen/   # SimpleXLSXGen 1.5.17 (MIT): src/SimpleXLSXGen.php + license.md only
-
+│
+├── vendor/                    # Project dependencies (+ .htaccess)
+│   ├── phpmailer/phpmailer/   # PHPMailer 6.12.0 core files + LICENSE
+│   └── shuchkin/simplexlsxgen/ # SimpleXLSXGen 1.5.17 core SimpleXLSXGen.php file + license.md
+│
 ├── error/                     # 400 · 401 · 403 · 404 · 500 · 503 .html + router.php
 ├── assets/
 │   ├── css/style.css          # All styling, responsive breakpoints, map styles
 │   ├── img/                   # favicon.png, favicon.ico
-│   └── js/                    # dashboard.js · dashboard-calendar.js ·
-│                              #   sector-boundaries.js · farm-lot-boundary.js
+│   └── js/                    # dashboard.js (drawer + shared BAMBOSA.escapeHtml / createMap) ·
+│                              #   dashboard-calendar.js · sector-boundaries.js · farm-lot-boundary.js
 ├── sql/
 │   ├── bambosa_db.sql         # Full schema + seed accounts (fresh install)
 │   └── migrations/            # 001 … 008 for existing installs (+ .htaccess)
@@ -362,9 +371,12 @@ Every role has a profile page (`admin/`, `officer/` and `member/profile.php`):
   attempts in the last 30 days. Attempts made with an email that matches no
   account can't be tied to anyone, so only the admin's User Login Logs
   page shows those.
-- The account form and the password form post to the same endpoint and are
-  told apart by a hidden `form=password` field, so each shows its own
-  success/error state.
+- The profile pages of all three roles share one handler
+  (`handle_profile_update()` in `includes/account_profile.php`) and one form
+  partial (`includes/partials/profile_form_body.php`); the Account Security
+  pages likewise share `includes/account_security.php`. Account rules (roles,
+  statuses, minimum password length, email validation) live once in
+  `includes/validation.php`.
 
 ---
 
@@ -391,8 +403,8 @@ Every role has a profile page (`admin/`, `officer/` and `member/profile.php`):
   a green header row, frozen panes, auto-filter and column widths; contact numbers are stored as text
   so leading zeros survive. CSV is UTF-8 with BOM and guards against
   spreadsheet formulas (values starting with `=`, `+`, `-`, `@`).
-- All data access goes through `includes/members.php` using prepared
-  statements.
+- Data access goes through `includes/members.php` (the export has its own
+  queries in `includes/members_export.php`), always with prepared statements.
 
 ### Sector management
 
@@ -668,15 +680,22 @@ vendored in `vendor/phpmailer/phpmailer/src/`; no Composer, no OAuth/POP3):
   updated and activated. An email was sent…"; if email is off or fails, they
   just see "Account updated."
 
-**Links in emails.** Email buttons use full URLs (`absolute_url()` in `includes/base_path_utils.php`) because an inbox has no page to resolve a relative link like `/bambosa/login.php` against. The site's address comes from `APP_PUBLIC_ORIGIN` in `config/smtp.php` (e.g. `'https://irrigation.example.com'` — the install folder is added automatically). Left empty, it is detected from the request, which is fine for localhost; **on a public server set it**, because the detected value comes from the browser's `Host` header, which a malicious visitor could fake to make a reset link point at their own site.
+**Links in emails.** Email buttons use full URLs (`absolute_url()` in
+  `includes/base_path_utils.php`) because an inbox has no page to resolve a relative
+  link like `/bambosa/login.php` against. The site's address comes from `APP_PUBLIC_ORIGIN`
+  in `config/smtp.php` (e.g. `'https://irrigation.example.com'` — the install folder is
+  added automatically). Left empty, it is detected from the request, which is fine for
+  localhost; **on a public server set it**, because the detected value comes from the
+  browser's `Host` header, which a malicious visitor could fake to make a reset link
+  point at their own site.
 
 **Setup:** fill in `config/smtp.php` (host, port, username, password,
-encryption, from-address — it includes worked examples for Gmail with an App
-Password, Outlook/Microsoft 365 and cPanel mailboxes) and set
-`SMTP_ENABLED = true`. Everything else works without email.
+  encryption, from-address — it includes worked examples for Gmail with an App
+  Password, Outlook/Microsoft 365 and cPanel mailboxes) and set
+  `SMTP_ENABLED = true`. Everything else works without email.
 
 **Graceful degradation.** With email off (the default) or misconfigured —
-including a missing `vendor/phpmailer` folder — nothing breaks:
+  including a missing `vendor/phpmailer` folder — nothing breaks:
 
 - The forgot-password page always shows the same "if that email is
   registered, a link has been sent" message, whether or not the address
@@ -779,7 +798,12 @@ pagination.
   override so one page can host two independent tables).
 - Each "get all X" data function takes optional `$search`, `$limit` and
   `$offset`, paired with a `count_*()` function; passing `null` returns every
-  row, so callers that need an unpaginated list keep working.
+  row, so callers that need an unpaginated list keep working. A pair shares
+  one `build_*_filter()` WHERE builder, so the list and its count can't
+  drift apart, and both run through `db_fetch_all()` / `db_count()` /
+  `db_like_clause()` in `includes/db_helpers.php`.
+- The signed-in user's login history on **Account Security** is paginated
+  too, with an "All attempts / Failed only" switch instead of a search box.
 - All search and `LIMIT/OFFSET` values are bound as prepared-statement
   parameters. The only dynamic SQL fragments are hardcoded strings chosen by
   server-side logic.
@@ -791,14 +815,18 @@ pagination.
 ### Responsive UI
 
 - The three sidebar partials (`admin_`, `officer_`, `member_sidebar.php` in
-  `includes/partials/`) hold the nav links, active-state highlighting and
-  mobile drawer markup in one place per role. Each nav item is an inline
-  Material Design Icons `<svg>` (`fill="white"`, 24×24) followed by a
-  `<span>` label, so icons look the same on every platform.
+  `includes/partials/`) only list each role's nav items; `render_sidebar()`
+  in `includes/sidebar.php` draws the mobile top bar, drawer, nav links with
+  active-state highlighting and the Log Out button for all of them. Each nav
+  item is an inline Material Design Icons `<svg>` (`fill="white"`, 24×24,
+  paths kept once in `SIDEBAR_ICONS`) followed by a `<span>` label, so icons
+  look the same on every platform.
 - **Desktop (> 880 px):** fixed-width sidebar. **Mobile/tablet (≤ 880 px):**
   the sidebar becomes a slide-in drawer opened by the hamburger button in a
   green top bar; the overlay, the ✕ button, or any nav link closes it.
-  Logic is vanilla JS in `assets/js/dashboard.js`.
+  Logic is vanilla JS in `assets/js/dashboard.js`, which also exposes the shared
+  `BAMBOSA.escapeHtml()` and `BAMBOSA.createMap()` (Leaflet + OpenStreetMap tiles)
+  helpers used by the map and calendar scripts.
 - Every `<table class="data-table">` sits in a `.table-scroll` wrapper so
   wide tables scroll sideways on small screens; forms (`.form-row`), the
   landing page and the login/signup cards have breakpoints down to ~480 px.
@@ -814,7 +842,7 @@ pagination.
 ## 7. Security summary
 
 - **Passwords:** `password_hash()` / `password_verify()`; minimum 8
-  characters for new passwords; the current password is required to change
+  characters for new passwords (`PASSWORD_MIN_LENGTH`); the current password is required to change
   your own password or email.
 - **Sessions:** `httponly`, `samesite=Lax`, scoped cookie path; the session
   is re-validated against the database every request, so deleting,
@@ -824,7 +852,10 @@ pagination.
   cannot change admin or officer accounts. Admins cannot delete, demote or
   deactivate themselves, and the last active admin is protected.
 - **CSRF:** tokens on login, signup, forgot/reset password, profile,
-  account-management and billing forms.
+  Account Security, account-management and billing forms.
+- **Login auditing:** every login attempt, successful or failed, is recorded
+  (see [Authentication & sessions](#authentication--sessions)); admins review
+  them all, and each user sees their own on Account Security.
 - **SQL injection:** prepared statements throughout; search terms and
   `LIMIT/OFFSET` are bound parameters.
 - **XSS:** output is HTML-escaped; external API data (IP lookup) is escaped
@@ -858,8 +889,12 @@ pagination.
 5. Set `$activeNav`, open `<div class="dash-shell">`, include the role's
    sidebar partial, wrap content in `<main class="dash-main">`, and load
    `assets/js/dashboard.js` before `</body>`. Wrap tables in `.table-scroll`.
-6. Add the link to the sidebar partial (icon `<svg>` + `<span>`).
-7. For list pages, use the helpers in `includes/pagination.php`.
+6. Add the link to the role's sidebar partial: one entry in its items array
+   (and a new icon path in `SIDEBAR_ICONS` in `includes/sidebar.php` if needed).
+7. For list pages, use the helpers in `includes/pagination.php` and, in the
+   data layer, `includes/db_helpers.php` (one `build_*_filter()` shared by the
+   list and count functions). Reuse `includes/validation.php` for roles,
+   statuses, password length and email checks instead of repeating literals.
 8. Update this README and, if data or flows changed, the diagrams.
 
 **Schema changes:** add `sql/migrations/NNN_description.sql` (idempotent)
@@ -922,7 +957,9 @@ where noted):
 | Machinery reservations (pools, stock-aware approval, condition tracking) | ✅ |
 | ISF billing (periods, bills for lots inside sectors, payments with audit trail) | ✅ |
 | Dashboard calendar | ✅ |
-| Admin: user management, login logs, IP lookup, system clock | ✅ |
+| Admin: user management, login logs (incl. failed attempts), IP lookup, system clock | ✅ |
+| Account Security (password change + own login activity) for every role | ✅ |
+| Member export to Excel / CSV (officer) | ✅ |
 | Responsive UI, custom error pages, timezone sync, optional SMTP email | ✅ |
 
 Possible follow-ups beyond the original scope: printable/PDF bills and

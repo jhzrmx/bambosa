@@ -1,4 +1,28 @@
 /**
+ * Shared helpers, exposed as window.BAMBOSA (this file is loaded on every
+ * dashboard page, before any page-specific script):
+ *   BAMBOSA.escapeHtml(str)   HTML-escapes text before it goes into innerHTML
+ *   BAMBOSA.createMap(id)     Leaflet map on #id with the OpenStreetMap tile
+ *                             layer already added (Leaflet must be loaded first)
+ */
+window.BAMBOSA = window.BAMBOSA || {};
+
+window.BAMBOSA.escapeHtml = function (str) {
+  var div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+};
+
+window.BAMBOSA.createMap = function (elementId) {
+  var map = L.map(elementId);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+  return map;
+};
+
+/**
  * Mobile sidebar drawer toggle.
  * Expects: #dashSidebar (the drawer), #dashOverlay (the backdrop),
  * and any element with [data-drawer-toggle] or [data-drawer-close].

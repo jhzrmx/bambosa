@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Full name must be 150 characters or fewer.';
     }
 
-    if (!filter_var($form['email'], FILTER_VALIDATE_EMAIL) || strlen($form['email']) > 150) {
+    if (!is_valid_email($form['email'])) {
         $errors[] = 'Please enter a valid email address.';
     } elseif (email_in_use($pdo, $form['email'], $editing ? (int) $editing['user_id'] : 0)) {
         $errors[] = 'That email address is already used by another account.';
@@ -75,8 +75,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Password: required for a new account, optional (blank = keep) when editing.
     if (!$editing || $password !== '' || $confirmPassword !== '') {
-        if (strlen($password) < 8) {
-            $errors[] = 'Password must be at least 8 characters.';
+        if ($lengthError = password_length_error($password)) {
+            $errors[] = $lengthError;
         } elseif ($password !== $confirmPassword) {
             $errors[] = 'Password and confirmation do not match.';
         }
@@ -203,14 +203,14 @@ $pageTitle = $editing ? 'Edit Account' : 'Add New Account';
       <div class="form-row">
         <div class="form-group">
           <label for="password"><?= $editing ? 'New Password (leave blank to keep current)' : 'Password' ?></label>
-          <input type="password" id="password" name="password" minlength="8" autocomplete="new-password" <?= $editing ? '' : 'required' ?>>
+          <input type="password" id="password" name="password" minlength="<?= PASSWORD_MIN_LENGTH ?>" autocomplete="new-password" <?= $editing ? '' : 'required' ?>>
         </div>
         <div class="form-group">
           <label for="confirm_password">Confirm Password</label>
-          <input type="password" id="confirm_password" name="confirm_password" minlength="8" autocomplete="new-password" <?= $editing ? '' : 'required' ?>>
+          <input type="password" id="confirm_password" name="confirm_password" minlength="<?= PASSWORD_MIN_LENGTH ?>" autocomplete="new-password" <?= $editing ? '' : 'required' ?>>
         </div>
       </div>
-      <p class="muted-note" style="margin-top:0;">Must be at least 8 characters.</p>
+      <p class="muted-note" style="margin-top:0;">Must be at least <?= PASSWORD_MIN_LENGTH ?> characters.</p>
 
       <div class="btn-row">
         <button type="submit" class="btn-full"><?= $editing ? 'Save Changes' : 'Create Account' ?></button>

@@ -4,6 +4,9 @@
  * Requires $pdo from config/database.php to already be loaded.
  */
 
+require_once __DIR__ . '/db_helpers.php';
+require_once __DIR__ . '/validation.php';
+
 /** Get all sectors for dropdowns, ordered by name. */
 function get_sectors(PDO $pdo): array
 {
@@ -25,45 +28,24 @@ function get_sectors_with_usage(PDO $pdo, ?string $search = null, ?int $limit = 
                 (SELECT COUNT(*) FROM farm_lots fl WHERE fl.sector_id = s.sector_id) AS lot_count,
                 (SELECT COUNT(*) FROM rotation_schedules rs WHERE rs.sector_id = s.sector_id) AS schedule_count
             FROM sectors s";
-    $params = [];
 
-    if ($search) {
-        $sql .= ' WHERE s.sector_name LIKE :search1 OR s.description LIKE :search2';
-        $params['search1'] = '%' . $search . '%';
-        $params['search2'] = '%' . $search . '%';
+    list($searchSql, $params) = db_like_clause(['s.sector_name', 's.description'], $search);
+    if ($searchSql !== '') {
+        $sql .= ' WHERE ' . $searchSql;
     }
 
-    $sql .= ' ORDER BY s.sector_name';
-
-    if ($limit !== null && $offset !== null) {
-        $sql .= ' LIMIT :limit OFFSET :offset';
-    }
-
-    $stmt = $pdo->prepare($sql);
-    foreach ($params as $key => $value) {
-        $stmt->bindValue($key, $value, PDO::PARAM_STR);
-    }
-    if ($limit !== null && $offset !== null) {
-        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
-    }
-    $stmt->execute();
-    return $stmt->fetchAll();
+    return db_fetch_all($pdo, $sql . ' ORDER BY s.sector_name', $params, $limit, $offset);
 }
 
 /** Count of sectors matching an optional search term (for pagination totals). */
 function count_sectors(PDO $pdo, ?string $search = null): int
 {
-    $sql = 'SELECT COUNT(*) AS cnt FROM sectors';
-    $params = [];
-    if ($search) {
-        $sql .= ' WHERE sector_name LIKE :search1 OR description LIKE :search2';
-        $params['search1'] = '%' . $search . '%';
-        $params['search2'] = '%' . $search . '%';
-    }
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    return (int) $stmt->fetch()['cnt'];
+    list($searchSql, $params) = db_like_clause(['sector_name', 'description'], $search);
+    return db_count(
+        $pdo,
+        'SELECT COUNT(*) AS cnt FROM sectors' . ($searchSql !== '' ? ' WHERE ' . $searchSql : ''),
+        $params
+    );
 }
 
 /** Get a single sector by ID. */
@@ -132,60 +114,35 @@ function sector_name_exists(PDO $pdo, string $name, ?int $excludeId = null): boo
  */
 function get_all_members(PDO $pdo, ?string $status = null, ?string $search = null, ?int $limit = null, ?int $offset = null): array
 {
-    $sql = "SELECT * FROM users WHERE role = 'member'";
-    $params = [];
-
-    if ($status) {
-        $sql .= ' AND status = :status';
-        $params['status'] = $status;
-    }
-
-    if ($search) {
-        $sql .= ' AND (full_name LIKE :search1 OR email LIKE :search2 OR contact_number LIKE :search3)';
-        $params['search1'] = '%' . $search . '%';
-        $params['search2'] = '%' . $search . '%';
-        $params['search3'] = '%' . $search . '%';
-    }
-
-    $sql .= ' ORDER BY full_name';
-
-    if ($limit !== null && $offset !== null) {
-        $sql .= ' LIMIT :limit OFFSET :offset';
-    }
-
-    $stmt = $pdo->prepare($sql);
-    foreach ($params as $key => $value) {
-        $stmt->bindValue($key, $value, PDO::PARAM_STR);
-    }
-    if ($limit !== null && $offset !== null) {
-        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
-    }
-    $stmt->execute();
-    return $stmt->fetchAll();
+    list($where, $params) = build_member_filter($status, $search);
+    return db_fetch_all($pdo, "SELECT * FROM users WHERE $where ORDER BY full_name", $params, $limit, $offset);
 }
 
 /** Count of members matching an optional status/search filter (for pagination totals). */
 function count_members(PDO $pdo, ?string $status = null, ?string $search = null): int
 {
-    $sql = "SELECT COUNT(*) AS cnt FROM users WHERE role = 'member'";
+    list($where, $params) = build_member_filter($status, $search);
+    return db_count($pdo, "SELECT COUNT(*) AS cnt FROM users WHERE $where", $params);
+}
+
+/** Shared WHERE clause + params for get_all_members() / count_members(). */
+function build_member_filter(?string $status, ?string $search): array
+{
+    $where  = ["role = 'member'"];
     $params = [];
 
-    if ($status) {
-        $sql .= ' AND status = :status';
+    if ($status !== null && $status !== '') {
+        $where[] = 'status = :status';
         $params['status'] = $status;
     }
 
-    if ($search) {
-        $sql .= ' AND (full_name LIKE :search1 OR email LIKE :search2 OR contact_number LIKE :search3)';
-        $params['search1'] = '%' . $search . '%';
-        $params['search2'] = '%' . $search . '%';
-        $params['search3'] = '%' . $search . '%';
+    list($searchSql, $searchParams) = db_like_clause(['full_name', 'email', 'contact_number'], $search);
+    if ($searchSql !== '') {
+        $where[]  = $searchSql;
+        $params  += $searchParams;
     }
 
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    return (int) $stmt->fetch()['cnt'];
+    return [implode(' AND ', $where), $params];
 }
 
 /** Get a single user by ID (any role). */
@@ -340,8 +297,8 @@ function verify_user_password(PDO $pdo, int $userId, string $password): bool
 /**
  * Changes a user's own password after verifying their current one.
  *
- * Used by the Account Security pages (admin/, officer/ and member/security.php) — any logged-in
- * user can change their own password this way (there's no "reset someone
+ * Used by the Account Security pages (admin/, officer/ and member/security.php).
+ * Any logged-in user can change their own password this way (there's no "reset someone
  * else's password" officer action; that's a separate, bigger feature).
  *
  * Returns true and updates the hash if $currentPassword matches what's on
@@ -350,25 +307,43 @@ function verify_user_password(PDO $pdo, int $userId, string $password): bool
  */
 function change_user_password(PDO $pdo, int $userId, string $currentPassword, string $newPassword): bool
 {
-    $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE user_id = :id');
-    $stmt->execute(['id' => $userId]);
-    $row = $stmt->fetch();
-
-    if (!$row || !password_verify($currentPassword, $row['password_hash'])) {
+    if (!verify_user_password($pdo, $userId, $currentPassword)) {
         return false;
     }
 
-    $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
-    $update = $pdo->prepare('UPDATE users SET password_hash = :hash WHERE user_id = :id');
-    $update->execute(['hash' => $newHash, 'id' => $userId]);
+    set_user_password($pdo, $userId, $newPassword);
     return true;
+}
+
+/** Stores a new password (hashed) for a user. No current-password check: callers verify first. */
+function set_user_password(PDO $pdo, int $userId, string $newPassword): void
+{
+    $stmt = $pdo->prepare('UPDATE users SET password_hash = :hash WHERE user_id = :id');
+    $stmt->execute(['hash' => hash_password($newPassword), 'id' => $userId]);
+}
+
+/** Creates an account. Returns the new user_id. Throws PDOException on duplicate email. */
+function create_user(PDO $pdo, string $fullName, string $email, string $password, string $role, ?string $contact, string $status): int
+{
+    $stmt = $pdo->prepare(
+        'INSERT INTO users (full_name, email, password_hash, role, contact_number, status)
+         VALUES (:full_name, :email, :hash, :role, :contact, :status)'
+    );
+    $stmt->execute([
+        'full_name' => $fullName,
+        'email'     => $email,
+        'hash'      => hash_password($password),
+        'role'      => $role,
+        'contact'   => $contact ?: null,
+        'status'    => $status,
+    ]);
+    return (int) $pdo->lastInsertId();
 }
 
 /** Officer action: change a member's account status (approve, deactivate, reactivate). */
 function update_user_status(PDO $pdo, int $userId, string $status): void
 {
-    $allowed = ['active', 'inactive', 'pending'];
-    if (!in_array($status, $allowed, true)) {
+    if (!in_array($status, USER_STATUSES, true)) {
         throw new InvalidArgumentException('Invalid status value.');
     }
 
@@ -390,15 +365,6 @@ function get_mapped_farm_lots(PDO $pdo): array
          WHERE fl.latitude IS NOT NULL AND fl.longitude IS NOT NULL
          ORDER BY fl.lot_name"
     )->fetchAll();
-}
-
-/** Count of farm lots missing coordinates — flagged to the officer as incomplete data entry. */
-function count_unmapped_farm_lots(PDO $pdo): int
-{
-    $row = $pdo->query(
-        "SELECT COUNT(*) AS cnt FROM farm_lots WHERE latitude IS NULL OR longitude IS NULL"
-    )->fetch();
-    return (int) $row['cnt'];
 }
 
 /**

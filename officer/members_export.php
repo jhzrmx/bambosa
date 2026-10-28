@@ -18,7 +18,7 @@ $xlsxAvailable = xlsx_library_path() !== null;
 $format  = ($_GET['format'] ?? 'xlsx') === 'csv' ? 'csv' : 'xlsx';
 $layout  = ($_GET['layout'] ?? 'member') === 'lot' ? 'lot' : 'member';
 $status  = $_GET['status'] ?? '';
-$status  = in_array($status, MEMBER_EXPORT_STATUSES, true) ? $status : '';
+$status  = in_array($status, USER_STATUSES, true) ? $status : '';
 $sectorP = (string) ($_GET['sector'] ?? '');   // '' = all, 'none' = unassigned, or a sector id
 if ($sectorP !== '' && $sectorP !== 'none' && !isset($sectorMap[(int) $sectorP])) {
     $sectorP = '';
@@ -108,7 +108,7 @@ $activeNav = 'members';
           <label for="status">Member status</label>
           <select id="status" name="status">
             <option value="">All statuses</option>
-            <?php foreach (MEMBER_EXPORT_STATUSES as $st): ?>
+            <?php foreach (USER_STATUSES as $st): ?>
               <option value="<?= $st ?>" <?= $status === $st ? 'selected' : '' ?>><?= ucfirst($st) ?></option>
             <?php endforeach; ?>
           </select>

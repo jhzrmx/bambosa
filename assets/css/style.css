@@ -1473,12 +1473,12 @@ footer.site-footer {
   padding: 88px 0;
 }
 
-.section-heading {
+.landing-section-heading {
   max-width: 680px;
   margin-bottom: 38px;
 }
 
-.section-heading h2,
+.landing-section-heading h2,
 .community-copy h2,
 .landing-cta h2 {
   margin: 0;
@@ -1488,7 +1488,7 @@ footer.site-footer {
   letter-spacing: -.03em;
 }
 
-.section-heading p,
+.landing-section-heading p,
 .community-copy p {
   margin: 14px 0 0;
   color: var(--clr-muted);

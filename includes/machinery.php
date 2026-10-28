@@ -29,6 +29,8 @@
  *   machinery_id finally gets filled in.
  */
 
+require_once __DIR__ . '/db_helpers.php';
+
 /**
  * Maps a 0-100 damage level to a CSS severity class for the condition bar
  * (green/amber/red), so the visual matches the same thresholds everywhere
@@ -145,72 +147,46 @@ function get_available_machinery_groups(PDO $pdo): array
  */
 function get_all_machinery(PDO $pdo, bool $onlyAvailable = false, ?string $search = null, ?int $limit = null, ?int $offset = null): array
 {
+    list($where, $params) = build_machinery_filter($onlyAvailable, $search);
     $sql = "SELECT m.*, g.group_name
             FROM machinery m
             LEFT JOIN machinery_groups g ON g.group_id = m.group_id
-            WHERE 1=1";
-    $params = [];
-
-    if ($onlyAvailable) {
-        $sql .= ' AND m.is_available = 1';
-    }
-
-    if ($search) {
-        $sql .= ' AND (m.name LIKE :search1 OR m.description LIKE :search2 OR g.group_name LIKE :search3)';
-        $params['search1'] = '%' . $search . '%';
-        $params['search2'] = '%' . $search . '%';
-        $params['search3'] = '%' . $search . '%';
-    }
-
-    $sql .= ' ORDER BY m.name';
-
-    if ($limit !== null && $offset !== null) {
-        $sql .= ' LIMIT :limit OFFSET :offset';
-    }
-
-    $stmt = $pdo->prepare($sql);
-    foreach ($params as $key => $value) {
-        $stmt->bindValue($key, $value, PDO::PARAM_STR);
-    }
-    if ($limit !== null && $offset !== null) {
-        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
-    }
-    $stmt->execute();
-    return $stmt->fetchAll();
+            WHERE $where
+            ORDER BY m.name";
+    return db_fetch_all($pdo, $sql, $params, $limit, $offset);
 }
 
 /** Count of machinery matching an optional availability/search filter (for pagination totals). */
 function count_machinery(PDO $pdo, bool $onlyAvailable = false, ?string $search = null): int
 {
-    $sql = "SELECT COUNT(*) AS cnt
-            FROM machinery m
-            LEFT JOIN machinery_groups g ON g.group_id = m.group_id
-            WHERE 1=1";
+    list($where, $params) = build_machinery_filter($onlyAvailable, $search);
+    return db_count(
+        $pdo,
+        "SELECT COUNT(*) AS cnt
+         FROM machinery m
+         LEFT JOIN machinery_groups g ON g.group_id = m.group_id
+         WHERE $where",
+        $params
+    );
+}
+
+/** Shared WHERE clause + params for get_all_machinery() / count_machinery(). */
+function build_machinery_filter(bool $onlyAvailable, ?string $search): array
+{
+    $where  = ['1=1'];
     $params = [];
 
     if ($onlyAvailable) {
-        $sql .= ' AND m.is_available = 1';
+        $where[] = 'm.is_available = 1';
     }
 
-    if ($search) {
-        $sql .= ' AND (m.name LIKE :search1 OR m.description LIKE :search2 OR g.group_name LIKE :search3)';
-        $params['search1'] = '%' . $search . '%';
-        $params['search2'] = '%' . $search . '%';
-        $params['search3'] = '%' . $search . '%';
+    list($searchSql, $searchParams) = db_like_clause(['m.name', 'm.description', 'g.group_name'], $search);
+    if ($searchSql !== '') {
+        $where[]  = $searchSql;
+        $params  += $searchParams;
     }
 
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    return (int) $stmt->fetch()['cnt'];
-}
-
-/** All machines belonging to a specific group (for the officer's group-management and unit-assignment views). */
-function get_machinery_by_group(PDO $pdo, int $groupId): array
-{
-    $stmt = $pdo->prepare('SELECT * FROM machinery WHERE group_id = :gid ORDER BY name');
-    $stmt->execute(['gid' => $groupId]);
-    return $stmt->fetchAll();
+    return [implode(' AND ', $where), $params];
 }
 
 function get_machinery_by_id(PDO $pdo, int $id): ?array
@@ -275,18 +251,6 @@ function update_machinery(PDO $pdo, int $id, string $name, ?string $description,
     }
 }
 
-/**
- * Sets just a machine's damage/condition level (0-100). Split out from
- * update_machinery() so the "quick adjust the damage slider" action
- * doesn't need to resubmit every other field on the machine.
- */
-function set_machinery_damage_level(PDO $pdo, int $id, int $damageLevel): void
-{
-    $damageLevel = max(0, min(100, $damageLevel)); // clamp defensively even though the UI already constrains this
-    $stmt = $pdo->prepare('UPDATE machinery SET damage_level = :damage_level WHERE machinery_id = :id');
-    $stmt->execute(['damage_level' => $damageLevel, 'id' => $id]);
-}
-
 function delete_machinery(PDO $pdo, int $id): void
 {
     $stmt = $pdo->prepare('DELETE FROM machinery WHERE machinery_id = :id');
@@ -304,75 +268,53 @@ function delete_machinery(PDO $pdo, int $id): void
  */
 function get_all_reservations(PDO $pdo, ?string $status = null, ?string $search = null, ?int $limit = null, ?int $offset = null): array
 {
+    list($where, $params) = build_reservation_filter($status, $search);
     $sql = "SELECT r.*, m.name AS machinery_name, g.group_name, u.full_name AS requester_name
             FROM machinery_reservations r
             LEFT JOIN machinery m ON m.machinery_id = r.machinery_id
             LEFT JOIN machinery_groups g ON g.group_id = r.group_id
             JOIN users u ON u.user_id = r.user_id
-            WHERE 1=1";
-    $params = [];
-
-    if ($status) {
-        $sql .= ' AND r.status = :status';
-        $params['status'] = $status;
-    }
-
-    if ($search) {
-        $sql .= ' AND (m.name LIKE :search1 OR g.group_name LIKE :search2 OR u.full_name LIKE :search3 OR r.purpose LIKE :search4)';
-        $params['search1'] = '%' . $search . '%';
-        $params['search2'] = '%' . $search . '%';
-        $params['search3'] = '%' . $search . '%';
-        $params['search4'] = '%' . $search . '%';
-    }
-
-    $sql .= ' ORDER BY r.start_date DESC, r.created_at DESC';
-
-    if ($limit !== null && $offset !== null) {
-        $sql .= ' LIMIT :limit OFFSET :offset';
-    }
-
-    $stmt = $pdo->prepare($sql);
-    foreach ($params as $key => $value) {
-        $stmt->bindValue($key, $value, PDO::PARAM_STR);
-    }
-    if ($limit !== null && $offset !== null) {
-        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
-    }
-    $stmt->execute();
-    return $stmt->fetchAll();
+            WHERE $where
+            ORDER BY r.start_date DESC, r.created_at DESC";
+    return db_fetch_all($pdo, $sql, $params, $limit, $offset);
 }
 
 /** Count of reservations matching an optional status/search filter (for pagination totals). */
 function count_reservations(PDO $pdo, ?string $status = null, ?string $search = null): int
 {
-    $sql = "SELECT COUNT(*) AS cnt
-            FROM machinery_reservations r
-            LEFT JOIN machinery m ON m.machinery_id = r.machinery_id
-            LEFT JOIN machinery_groups g ON g.group_id = r.group_id
-            JOIN users u ON u.user_id = r.user_id
-            WHERE 1=1";
+    list($where, $params) = build_reservation_filter($status, $search);
+    return db_count(
+        $pdo,
+        "SELECT COUNT(*) AS cnt
+         FROM machinery_reservations r
+         LEFT JOIN machinery m ON m.machinery_id = r.machinery_id
+         LEFT JOIN machinery_groups g ON g.group_id = r.group_id
+         JOIN users u ON u.user_id = r.user_id
+         WHERE $where",
+        $params
+    );
+}
+
+/** Shared WHERE clause + params for get_all_reservations() / count_reservations(). */
+function build_reservation_filter(?string $status, ?string $search): array
+{
+    $where  = ['1=1'];
     $params = [];
 
-    if ($status) {
-        $sql .= ' AND r.status = :status';
+    if ($status !== null && $status !== '') {
+        $where[] = 'r.status = :status';
         $params['status'] = $status;
     }
 
-    if ($search) {
-        $sql .= ' AND (m.name LIKE :search1 OR g.group_name LIKE :search2 OR u.full_name LIKE :search3 OR r.purpose LIKE :search4)';
-        $params['search1'] = '%' . $search . '%';
-        $params['search2'] = '%' . $search . '%';
-        $params['search3'] = '%' . $search . '%';
-        $params['search4'] = '%' . $search . '%';
+    list($searchSql, $searchParams) = db_like_clause(['m.name', 'g.group_name', 'u.full_name', 'r.purpose'], $search);
+    if ($searchSql !== '') {
+        $where[]  = $searchSql;
+        $params  += $searchParams;
     }
 
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    return (int) $stmt->fetch()['cnt'];
+    return [implode(' AND ', $where), $params];
 }
 
-/** Reservations belonging to one member, newest first. */
 /**
  * Reservations belonging to one member, newest first. Optional search
  * term (matched against machine name, group name, and purpose) and
@@ -387,58 +329,44 @@ function count_reservations(PDO $pdo, ?string $status = null, ?string $search = 
  */
 function get_reservations_by_user(PDO $pdo, int $userId, ?string $search = null, ?int $limit = null, ?int $offset = null): array
 {
+    list($where, $params) = build_user_reservation_filter($userId, $search);
     $sql = "SELECT r.*, m.name AS machinery_name, g.group_name
             FROM machinery_reservations r
             LEFT JOIN machinery m ON m.machinery_id = r.machinery_id
             LEFT JOIN machinery_groups g ON g.group_id = r.group_id
-            WHERE r.user_id = :uid";
-    $params = ['uid' => $userId];
-
-    if ($search) {
-        $sql .= ' AND (m.name LIKE :search1 OR g.group_name LIKE :search2 OR r.purpose LIKE :search3)';
-        $params['search1'] = '%' . $search . '%';
-        $params['search2'] = '%' . $search . '%';
-        $params['search3'] = '%' . $search . '%';
-    }
-
-    $sql .= ' ORDER BY r.start_date DESC, r.created_at DESC';
-
-    if ($limit !== null && $offset !== null) {
-        $sql .= ' LIMIT :limit OFFSET :offset';
-    }
-
-    $stmt = $pdo->prepare($sql);
-    foreach ($params as $key => $value) {
-        $stmt->bindValue($key, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
-    }
-    if ($limit !== null && $offset !== null) {
-        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-        $stmt->bindValue('offset', $offset, PDO::PARAM_INT);
-    }
-    $stmt->execute();
-    return $stmt->fetchAll();
+            WHERE $where
+            ORDER BY r.start_date DESC, r.created_at DESC";
+    return db_fetch_all($pdo, $sql, $params, $limit, $offset);
 }
 
 /** Count of a member's reservations matching an optional search filter (for pagination totals). */
 function count_reservations_by_user(PDO $pdo, int $userId, ?string $search = null): int
 {
-    $sql = "SELECT COUNT(*) AS cnt
-            FROM machinery_reservations r
-            LEFT JOIN machinery m ON m.machinery_id = r.machinery_id
-            LEFT JOIN machinery_groups g ON g.group_id = r.group_id
-            WHERE r.user_id = :uid";
+    list($where, $params) = build_user_reservation_filter($userId, $search);
+    return db_count(
+        $pdo,
+        "SELECT COUNT(*) AS cnt
+         FROM machinery_reservations r
+         LEFT JOIN machinery m ON m.machinery_id = r.machinery_id
+         LEFT JOIN machinery_groups g ON g.group_id = r.group_id
+         WHERE $where",
+        $params
+    );
+}
+
+/** Shared WHERE clause + params for get_reservations_by_user() / count_reservations_by_user(). */
+function build_user_reservation_filter(int $userId, ?string $search): array
+{
+    $where  = ['r.user_id = :uid'];
     $params = ['uid' => $userId];
 
-    if ($search) {
-        $sql .= ' AND (m.name LIKE :search1 OR g.group_name LIKE :search2 OR r.purpose LIKE :search3)';
-        $params['search1'] = '%' . $search . '%';
-        $params['search2'] = '%' . $search . '%';
-        $params['search3'] = '%' . $search . '%';
+    list($searchSql, $searchParams) = db_like_clause(['m.name', 'g.group_name', 'r.purpose'], $search);
+    if ($searchSql !== '') {
+        $where[]  = $searchSql;
+        $params  += $searchParams;
     }
 
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    return (int) $stmt->fetch()['cnt'];
+    return [implode(' AND ', $where), $params];
 }
 
 function get_reservation_by_id(PDO $pdo, int $id): ?array
@@ -648,14 +576,3 @@ function cancel_reservation(PDO $pdo, int $reservationId): void
     $stmt->execute(['id' => $reservationId]);
 }
 
-function update_reservation_status(PDO $pdo, int $reservationId, string $status): void
-{
-    $allowed = ['pending', 'approved', 'rejected', 'cancelled'];
-    if (!in_array($status, $allowed, true)) {
-        throw new InvalidArgumentException('Invalid reservation status.');
-    }
-    $stmt = $pdo->prepare(
-        'UPDATE machinery_reservations SET status = :status WHERE reservation_id = :id'
-    );
-    $stmt->execute(['status' => $status, 'id' => $reservationId]);
-}

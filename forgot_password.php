@@ -4,6 +4,7 @@ require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/includes/mailer.php';
 require_once __DIR__ . '/includes/password_reset.php';
+require_once __DIR__ . '/includes/validation.php';
 
 if (is_logged_in()) {
     redirect_to_dashboard();
@@ -20,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $oldEmail = trim($_POST['email'] ?? '');
 
-    if (!filter_var($oldEmail, FILTER_VALIDATE_EMAIL)) {
+    if (!is_valid_email($oldEmail)) {
         $errors[] = 'Please enter a valid email address.';
     }
 

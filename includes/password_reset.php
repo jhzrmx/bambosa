@@ -168,9 +168,7 @@ function consume_password_reset(PDO $pdo, string $rawToken, string $newPassword)
             return false;
         }
 
-        $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
-        $updateUser = $pdo->prepare('UPDATE users SET password_hash = :hash WHERE user_id = :id');
-        $updateUser->execute(['hash' => $newHash, 'id' => $userId]);
+        set_user_password($pdo, $userId, $newPassword);
 
         $pdo->commit();
         return true;

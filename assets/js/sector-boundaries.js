@@ -21,6 +21,8 @@
     var config = window.BAMBOSA_SECTOR_BOUNDARIES;
     if (!config || !document.getElementById('boundaryMap')) return;
 
+    var escapeHtml = window.BAMBOSA.escapeHtml;
+
     var sectors = config.sectors;         // [{id, name, color, hasBoundary, boundary}]
     var lots = config.lots;               // [{lotId, lotName, owner, boundary:[[lat,lng],...], sectorId}]
     var sectorSelect = document.getElementById('sectorSelect');
@@ -37,11 +39,7 @@
     sectors.forEach(function (s) { sectorsById[s.id] = s; });
 
     // ---- Map setup ----
-    var map = L.map('boundaryMap');
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
+    var map = window.BAMBOSA.createMap('boundaryMap');
 
     // Default view: loadSectorIntoEditor() (called on initial render, below)
     // decides the actual view — zoomed to the selected sector's boundary if
@@ -99,12 +97,6 @@
       }
     });
     map.addControl(drawControl);
-
-    function escapeHtml(str) {
-      var div = document.createElement('div');
-      div.appendChild(document.createTextNode(String(str)));
-      return div.innerHTML;
-    }
 
     function showAlert(message, isError) {
       alertBox.innerHTML =

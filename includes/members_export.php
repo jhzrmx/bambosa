@@ -12,8 +12,6 @@
  * typed, as plain text, never interpreted as a formula or markup.
  */
 
-const MEMBER_EXPORT_STATUSES = ['active', 'inactive', 'pending'];
-
 /** Path of the vendored XLSX library, or null if it is not installed. */
 function xlsx_library_path(): ?string
 {
@@ -31,7 +29,7 @@ function xlsx_library_path(): ?string
  * With a sector chosen, a member appears only if they have a matching lot,
  * and the lot count / area / sectors in the 'member' layout are limited to
  * that sector.
- * $status: null or one of MEMBER_EXPORT_STATUSES.
+ * $status: null or one of USER_STATUSES.
  */
 function get_members_for_export(PDO $pdo, string $layout, ?int $sector, ?string $status): array
 {
