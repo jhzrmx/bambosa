@@ -1,5 +1,7 @@
 # BAMBOSA Irrigation Management Platform
 
+<img src="docs/screenshots/LandingPage.png" width="100%">
+
 BAMBOSA is a web platform for running an irrigation association (built
 around Barangay Bikal's setup): member and farm-lot records, sector maps,
 water-rotation schedules, machinery reservations, and irrigation service
