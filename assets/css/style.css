@@ -631,11 +631,12 @@ footer.site-footer {
 
 .cal-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
 }
 
 .cal-weekday {
+  min-width: 0;
   text-align: center;
   font-size: 0.75rem;
   font-weight: 700;
@@ -647,7 +648,9 @@ footer.site-footer {
 
 .cal-cell {
   aspect-ratio: 1 / 1;
+  min-width: 0;
   min-height: 64px;
+  overflow: hidden;
   border: 1px solid var(--clr-border);
   border-radius: 8px;
   background: var(--clr-surface);
@@ -729,9 +732,12 @@ footer.site-footer {
 .cal-detail-time { font-size: 0.78rem; color: var(--clr-accent); font-weight: 600; margin-top: 0.1rem; }
 .cal-detail-desc { font-size: 0.8rem; color: var(--clr-muted); margin-top: 0.2rem; line-height: 1.4; }
 
-@media (max-width: 900px) {
+/* Stack the detail panel under the calendar before the two columns get
+   too tight. The 260px sidebar stays visible down to 881px, so the
+   calendar needs the wider breakpoint to avoid overlapping the details. */
+@media (max-width: 1180px) {
   .dash-calendar {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .cal-side {
     border-left: none;
