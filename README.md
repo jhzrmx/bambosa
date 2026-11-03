@@ -246,7 +246,10 @@ bambosa/
 ├── sql/
 │   ├── bambosa_db.sql         # Full schema + seed accounts (fresh install)
 │   └── migrations/            # 001 … 008 for existing installs (+ .htaccess)
-└── docs/diagrams/             # erd.mermaid · dfd_level0.mermaid · dfd_level1.mermaid · README.md
+│
+└── docs/                      # Some documentation
+    ├── diagrams/              # erd.mermaid · dfd_level0.mermaid · dfd_level1.mermaid · README.md
+    └── screenshots/           # App Screenshots, mainly LandingPage.png (for README.md)
 ```
 
 `includes/`, `config/`, `vendor/` and `sql/` each carry a
