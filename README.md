@@ -769,9 +769,13 @@ nested folder with no configuration, and the session cookie path follows the
 detected base.
 
 ```php
-// Good                                              // Bad
-<a href="<?= base_url('officer/reports.php') ?>">    <a href="/officer/reports.php">
-header('Location: ' . base_url('officer/dashboard.php'));   header('Location: /officer/dashboard.php');
+// Good
+<a href="<?= base_url('officer/reports.php') ?>">
+header('Location: ' . base_url('officer/dashboard.php'));
+
+// Bad
+<a href="/officer/reports.php">
+header('Location: /officer/dashboard.php');
 ```
 
 Every page starts with `require_once` of `includes/session.php` and
